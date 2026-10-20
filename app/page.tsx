@@ -76,6 +76,7 @@ export default function Studio() {
   const videoUrlRef = useRef("");
   const audioUrlRef = useRef("");
   const settingsRef = useRef<ProjectSettings>(defaults);
+  const skipSaveRef = useRef(false);
   const [settings, setSettings] = useState<ProjectSettings>(defaults);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -122,7 +123,7 @@ export default function Studio() {
   }, []);
 
   useEffect(() => {
-    if (!restored) return;
+    if (!restored || skipSaveRef.current) return;
     const timer = window.setTimeout(async () => {
       setSaved("saving");
       try {
@@ -143,6 +144,11 @@ export default function Studio() {
     video.style.filter = filters[settings.preset];
   }, [settings.speed, settings.sourceVolume, settings.preset, videoUrl]);
 
+  useEffect(() => {
+    const audio = musicPreviewRef.current;
+    if (audio) audio.volume = settings.volume / 100;
+  }, [settings.volume, audioUrl]);
+
   useEffect(() => { videoUrlRef.current = videoUrl; }, [videoUrl]);
   useEffect(() => { audioUrlRef.current = audioUrl; }, [audioUrl]);
   useEffect(() => () => {
@@ -151,6 +157,7 @@ export default function Studio() {
   }, []);
 
   const patch = useCallback(<K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]) => {
+    skipSaveRef.current = false;
     setSettings(prev => ({ ...prev, [key]: value }));
   }, []);
 
@@ -176,6 +183,7 @@ export default function Studio() {
 
   const onVideo = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
+    skipSaveRef.current = false;
     if (!file.type.startsWith("video/")) { setNotice("Please choose a video file."); return; }
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     const url = URL.createObjectURL(file); setVideoFile(file); setVideoUrl(url);
@@ -184,6 +192,7 @@ export default function Studio() {
   };
   const onAudio = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
+    skipSaveRef.current = false;
     if (!file.type.startsWith("audio/")) { setNotice("Please choose an audio file, such as MP3, WAV or M4A."); return; }
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioFile(file); setAudioUrl(URL.createObjectURL(file)); setNotice("Soundtrack added. It will be mixed into the exported edit.");
@@ -203,6 +212,7 @@ export default function Studio() {
   };
 
   const reset = async () => {
+    skipSaveRef.current = true;
     if (videoRef.current) { videoRef.current.pause(); videoRef.current.removeAttribute("src"); videoRef.current.load(); }
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     if (audioUrl) URL.revokeObjectURL(audioUrl);
