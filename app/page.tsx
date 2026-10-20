@@ -85,6 +85,7 @@ export default function Studio() {
   const audioUrlRef = useRef("");
   const settingsRef = useRef<ProjectSettings>(defaults);
   const skipSaveRef = useRef(false);
+  const userChangedRef = useRef(false);
   const [settings, setSettings] = useState<ProjectSettings>(defaults);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [audioFile, setAudioFile] = useState<File | null>(null);
@@ -125,7 +126,8 @@ export default function Studio() {
     let mounted = true;
     fetch("/api/health").then(r => r.ok ? r.json() : Promise.reject()).then(() => { if (mounted) setServerStatus("online"); }).catch(() => { if (mounted) setServerStatus("offline"); });
     loadProject().then(project => {
-      if (!mounted || !project) { setRestored(true); return; }
+      if (!mounted) return;
+      if (!project || userChangedRef.current) { setRestored(true); return; }
       setSettings(project.settings ?? defaults);
       if (project.videoBlob) {
         const file = new File([project.videoBlob], project.videoName || "restored-video.mp4", { type: project.videoBlob.type || "video/mp4" });
@@ -136,7 +138,7 @@ export default function Studio() {
         setAudioFile(file); setAudioUrl(URL.createObjectURL(file));
       }
       setNotice("Your last project was restored from this browser."); setRestored(true);
-    }).catch(() => setRestored(true));
+    }).catch(() => { if (mounted) setRestored(true); });
     return () => { mounted = false; };
   }, []);
 
@@ -186,6 +188,7 @@ export default function Studio() {
   }, []);
 
   const patch = useCallback(<K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]) => {
+    userChangedRef.current = true;
     skipSaveRef.current = false;
     setSettings(prev => {
       const next = { ...prev, [key]: value } as ProjectSettings;
@@ -215,6 +218,7 @@ export default function Studio() {
   const onVideo = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
     event.currentTarget.value = "";
+    userChangedRef.current = true;
     skipSaveRef.current = false;
     if (!file.type.startsWith("video/")) { setNotice("Please choose a video file."); return; }
     if (videoUrl) URL.revokeObjectURL(videoUrl);
@@ -225,6 +229,7 @@ export default function Studio() {
   const onAudio = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
     event.currentTarget.value = "";
+    userChangedRef.current = true;
     skipSaveRef.current = false;
     if (!file.type.startsWith("audio/")) { setNotice("Please choose an audio file, such as MP3, WAV or M4A."); return; }
     if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -276,6 +281,7 @@ export default function Studio() {
   };
 
   const reset = async () => {
+    userChangedRef.current = true;
     skipSaveRef.current = true;
     if (videoRef.current) { videoRef.current.pause(); videoRef.current.removeAttribute("src"); videoRef.current.load(); }
     if (videoUrl) URL.revokeObjectURL(videoUrl);
