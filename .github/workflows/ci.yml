@@ -24,6 +24,7 @@ jobs:
           node --check desktop/main.cjs
           node --check desktop/config.cjs
           node --check server/index.mjs
+          node --check server/smoke-test.mjs
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
@@ -31,4 +32,8 @@ jobs:
       - name: Production build
         run: npm run build
       - name: Verify server package metadata
-        run: node -e "const p=require('./server/package.json'); if (!p.scripts.start || !p.dependencies.express || !p.dependencies.multer) process.exit(1)"
+        run: node -e "const p=require('./server/package.json'); if (!p.scripts.start || !p.scripts.test || !p.dependencies.express || !p.dependencies.multer) process.exit(1)"
+      - name: Install render worker dependencies
+        run: npm install --prefix server
+      - name: Render worker smoke test
+        run: npm --prefix server test
