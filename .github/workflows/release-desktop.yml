@@ -17,7 +17,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: reeditx-desktop-release
+  group: reeditx-desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
