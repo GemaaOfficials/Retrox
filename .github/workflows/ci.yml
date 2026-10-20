@@ -9,19 +9,26 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - name: Install dependencies
+          node-version: "24.22.0"
+      - name: Install web and desktop dependencies
         run: npm install
+      - name: Check desktop and worker JavaScript syntax
+        run: |
+          node --check desktop/main.cjs
+          node --check desktop/config.cjs
+          node --check server/index.mjs
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
         run: npm run lint
       - name: Production build
         run: npm run build
+      - name: Verify server package metadata
+        run: node -e "const p=require('./server/package.json'); if (!p.scripts.start || !p.dependencies.express || !p.dependencies.multer) process.exit(1)"
