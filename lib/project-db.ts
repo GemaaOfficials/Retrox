@@ -61,8 +61,14 @@ function openDB(): Promise<IDBDatabase> {
           const item = cursor.result;
           if (!item) return;
           const value = item.value as SavedProject;
-          if (value.videoBlob) tx.objectStore(MEDIA).put({ blob: value.videoBlob, signature: signature(value.videoBlob, value.videoName) } satisfies MediaRecord, value.id + ":video");
-          if (value.audioBlob) tx.objectStore(MEDIA).put({ blob: value.audioBlob, signature: signature(value.audioBlob, value.audioName) } satisfies MediaRecord, value.id + ":audio");
+          if (value.videoBlob) {
+            const videoSignature = signature(value.videoBlob, value.videoName);
+            if (videoSignature) tx.objectStore(MEDIA).put({ blob: value.videoBlob, signature: videoSignature } satisfies MediaRecord, value.id + ":video");
+          }
+          if (value.audioBlob) {
+            const audioSignature = signature(value.audioBlob, value.audioName);
+            if (audioSignature) tx.objectStore(MEDIA).put({ blob: value.audioBlob, signature: audioSignature } satisfies MediaRecord, value.id + ":audio");
+          }
           const { videoBlob: _videoBlob, audioBlob: _audioBlob, ...metadata } = value;
           item.update(metadata);
           item.continue();
