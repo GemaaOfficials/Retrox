@@ -104,6 +104,16 @@ export default function Studio() {
   useEffect(() => { cutsRef.current = sceneCuts; }, [sceneCuts]);
 
   useEffect(() => {
+    if (duration <= 0) return;
+    let active = true;
+    fetch("/api/edit-plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ duration, rhythm: settings.rhythm, preset: settings.preset }) })
+      .then(response => response.ok ? response.json() : Promise.reject(new Error("Planner unavailable")))
+      .then(data => { if (active && Array.isArray(data.scenes)) setScenes(data.scenes as Scene[]); })
+      .catch(() => { /* The local editor remains usable without the server. */ });
+    return () => { active = false; };
+  }, [duration, settings.rhythm, settings.preset]);
+
+  useEffect(() => {
     let mounted = true;
     fetch("/api/health").then(r => r.ok ? r.json() : Promise.reject()).then(() => { if (mounted) setServerStatus("online"); }).catch(() => { if (mounted) setServerStatus("offline"); });
     loadProject().then(project => {
@@ -158,17 +168,19 @@ export default function Studio() {
 
   const patch = useCallback(<K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]) => {
     skipSaveRef.current = false;
-    setSettings(prev => ({ ...prev, [key]: value }));
+    setSettings(prev => {
+      const next = { ...prev, [key]: value } as ProjectSettings;
+      if (key === "rhythm") {
+        const rhythm = value as Rhythm;
+        next.speed = rhythm === "slow" ? 50 : rhythm === "punchy" ? 115 : 100;
+      }
+      return next;
+    });
   }, []);
 
   const inspect = useCallback(async (url: string, mediaDuration: number, width: number, height: number) => {
     setInspecting(true); setInspectProgress(0); setPlanLabel("INSPECTING FRAMES");
     setResolution(`${width} × ${height}`); setDuration(mediaDuration);
-    try {
-      const response = await fetch("/api/edit-plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ duration: mediaDuration, rhythm: settingsRef.current.rhythm, preset: settingsRef.current.preset }) });
-      const data = response.ok ? await response.json() : null;
-      if (data?.scenes) setScenes(data.scenes as Scene[]);
-    } catch { /* Offline fallback: keep the editor usable. */ }
     let detected: number[] = [];
     try {
       detected = await detectSceneChanges(url, mediaDuration, setInspectProgress);
@@ -264,17 +276,30 @@ export default function Studio() {
       recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
       const completed = new Promise<void>((resolve, reject) => { if (!recorder) return reject(new Error("Recorder could not be created.")); recorder.onstop = () => resolve(); recorder.onerror = () => reject(new Error("Browser recording failed.")); });
       let lastProgressAt = 0;
+      let nextQuickCut = 0;
       const drawFrame = () => {
         if (stopped) return;
-        const time = video.currentTime;
+        let time = video.currentTime;
+        let quickCutFlash = false;
+        if (settingsRef.current.rhythm === "punchy" && settingsRef.current.useQuickCuts) {
+          while (nextQuickCut < cutsRef.current.length && time >= cutsRef.current[nextQuickCut]) {
+            const cutAt = cutsRef.current[nextQuickCut++];
+            if (cutAt + 0.14 < duration - 0.03) {
+              // Jump a few frames at a detected boundary: an actual local quick-cut trim.
+              video.currentTime = cutAt + 0.14;
+              quickCutFlash = true;
+              time = video.currentTime;
+            }
+          }
+        }
         ctx.fillStyle = "#030308"; ctx.fillRect(0, 0, width, height);
         ctx.save(); ctx.filter = filters[settingsRef.current.preset];
         const scale = Math.max(width / sourceWidth, height / sourceHeight);
         const drawW = sourceWidth * scale, drawH = sourceHeight * scale;
         ctx.drawImage(video, (width - drawW) / 2, (height - drawH) / 2, drawW, drawH);
         ctx.restore();
-        const nearestCut = cutsRef.current.some(cut => Math.abs(cut - time) < .055);
-        if (settingsRef.current.rhythm === "punchy" && nearestCut && settingsRef.current.useQuickCuts) { ctx.fillStyle = "rgba(255,255,255,.24)"; ctx.fillRect(0, 0, width, height); }
+        const nearestCut = cutsRef.current.some(cut => Math.abs(cut - time) < .09);
+        if (settingsRef.current.rhythm === "punchy" && settingsRef.current.useQuickCuts && (quickCutFlash || nearestCut)) { ctx.fillStyle = "rgba(255,255,255,.24)"; ctx.fillRect(0, 0, width, height); }
         if (titleVisible && (settingsRef.current.title || settingsRef.current.subtitle)) {
           const s = settingsRef.current; const alpha = s.animatedTitles ? Math.min(1, Math.max(0, time * 3.8)) : 1;
           const lift = s.animatedTitles ? Math.max(0, 1 - time * 3.8) * 28 : 0;
