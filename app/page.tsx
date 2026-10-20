@@ -262,6 +262,7 @@ export default function Studio() {
     let musicGain: GainNode | null = null;
     let mixer: GainNode | null = null;
     let streamDestination: MediaStreamAudioDestinationNode | null = null;
+    let renderStream: MediaStream | null = null;
     let raf = 0; let stopped = false;
     try {
       video.pause(); video.currentTime = 0; video.playbackRate = settings.speed / 100; video.volume = settings.sourceVolume / 100;
@@ -274,6 +275,7 @@ export default function Studio() {
       const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext("2d"); if (!ctx) throw new Error("Could not start the video render canvas.");
       const stream = canvas.captureStream(30);
+      renderStream = stream;
       audioContext = audioContextRef.current ?? new AudioContext();
       audioContextRef.current = audioContext;
       let pipeline = videoAudioRef.current;
@@ -390,6 +392,7 @@ export default function Studio() {
         mixer.disconnect();
       }
       if (streamDestination) streamDestination.stream.getTracks().forEach(track => track.stop());
+      if (renderStream) renderStream.getTracks().forEach(track => track.stop());
       setPreviewPlaying(false); setExporting(false);
     }
   };
