@@ -17,8 +17,7 @@
     "next": "^16.4.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "zod": "^3.24.2",
-    "@fastify/busboy": "^3.2.3"
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
@@ -33,16 +32,34 @@
   "engines": {
     "node": ">=20.9.0"
   },
-  "main": "electron/main.cjs",
+  "main": "desktop/main.cjs",
   "build": {
     "appId": "com.gemaa.reeditx",
     "productName": "ReEditX",
     "directories": {
-      "output": "dist"
+      "output": "release"
     },
     "files": [
-      "electron/**/*",
+      "desktop/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build-runtime/node.exe",
+        "to": "node.exe"
+      },
+      {
+        "from": ".next/standalone",
+        "to": "app-server"
+      },
+      {
+        "from": ".next/static",
+        "to": "app-server/.next/static"
+      },
+      {
+        "from": "public",
+        "to": "app-server/public"
+      }
     ],
     "asar": true,
     "win": {
@@ -54,7 +71,7 @@
           ]
         }
       ],
-      "artifactName": "ReEditX.setup.exe"
+      "artifactName": "ReEditX.setup-${version}.exe"
     },
     "nsis": {
       "oneClick": false,
