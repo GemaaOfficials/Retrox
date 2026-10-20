@@ -23,7 +23,6 @@ export default function DownloadHome() {
 
   useEffect(() => {
     if (state !== "preparing") return;
-    setProgress(4);
     const start = Date.now();
     timerRef.current = setInterval(() => {
       const elapsed = Date.now() - start;
@@ -106,7 +105,7 @@ export default function DownloadHome() {
           <div className="download-cta-row">
             <button className="download-main-button" onClick={beginDownload} disabled={state==="preparing"}>
               <span className="download-button-icon">{state==="preparing" ? <LoaderCircle size={19} className="ribbon-spin"/> : state==="complete" ? <Check size={20}/> : <ArrowDownToLine size={20}/>}</span>
-              <span className="download-button-copy"><strong>{state==="preparing" ? "Preparing ReEditX..." : state==="complete" ? "Download started" : "Download ReEditX"}</strong><small>{installer?.available && installer.asset ? `Windows setup · ${bytes(installer.asset.size)}` : "Windows installer · 64-bit"}</small></span>
+              <span className="download-button-copy"><strong>{state==="preparing" ? "Preparing ReEditX..." : state==="complete" ? "Download started" : "Download ReEditX.setup"}</strong><small>{installer?.available && installer.asset ? `Windows setup · ${bytes(installer.asset.size)}` : "Windows installer · 64-bit"}</small></span>
               <span className="download-button-arrow">↗</span>
             </button>
             <Link className="open-studio-link" href="/studio">Open web studio <ArrowUpRight size={15}/></Link>

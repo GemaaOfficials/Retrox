@@ -1,3 +1,4 @@
+/* eslint @typescript-eslint/no-require-imports: "off" -- Electron main process is a CommonJS entrypoint. */
 const { app, BrowserWindow, dialog, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const net = require("node:net");
