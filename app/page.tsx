@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, type SyntheticEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity, AudioLines, Check, ChevronDown, Clapperboard, Download, Film,
   Layers3, LoaderCircle, Music2, Pause, Play, Plus, RefreshCw, Scissors,
@@ -72,7 +72,6 @@ async function detectSceneChanges(url: string, duration: number, update: (value:
 export default function Studio() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const musicPreviewRef = useRef<HTMLAudioElement>(null);
-  const frameRef = useRef<number | null>(null);
   const cutsRef = useRef<number[]>([]);
   const videoUrlRef = useRef("");
   const audioUrlRef = useRef("");
@@ -147,7 +146,6 @@ export default function Studio() {
   useEffect(() => { videoUrlRef.current = videoUrl; }, [videoUrl]);
   useEffect(() => { audioUrlRef.current = audioUrl; }, [audioUrl]);
   useEffect(() => () => {
-    if (frameRef.current) cancelAnimationFrame(frameRef.current);
     if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
     if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
   }, []);
@@ -191,7 +189,7 @@ export default function Studio() {
     setAudioFile(file); setAudioUrl(URL.createObjectURL(file)); setNotice("Soundtrack added. It will be mixed into the exported edit.");
   };
 
-  const updateFromMetadata = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+  const updateFromMetadata = (event: SyntheticEvent<HTMLVideoElement>) => {
     const v = event.currentTarget;
     if (!videoUrl || !Number.isFinite(v.duration) || v.duration <= 0 || v.videoWidth === 0) return;
     if (Math.abs(v.duration - duration) < .01 && resolution) return;
@@ -340,7 +338,7 @@ export default function Studio() {
       <div className="workspace">
         <section className="main-column">
           <div className="panel monitor-panel">
-            <div className="panel-head"><div><span className="eyebrow">01 / LIVE MONITOR</span><h2>Footage preview</h2></div><span className={inspecting ? "status-pill busy-pill" : "status-pill"}><i />{inspecting ? "INSPECTING" : videoFile ? "SOURCE READY" : "AWAITING MEDIA"}</span></div>
+            <div className="panel-head"><div><span className="eyebrow">01 / LIVE MONITOR</span><h2>Footage preview</h2></div><span className={inspecting ? "status-pill busy-pill" : "status-pill"}><i />{videoFile ? planLabel : "AWAITING MEDIA"}</span></div>
             <div className="video-stage">
               {videoUrl ? <video ref={videoRef} key={videoUrl} src={videoUrl} playsInline controls onLoadedMetadata={updateFromMetadata} onPlay={() => setPreviewPlaying(true)} onPause={() => setPreviewPlaying(false)} onTimeUpdate={() => { if (videoRef.current) setPreviewPlaying(!videoRef.current.paused); }} style={{ filter: filters[settings.preset] }} /> :
                 <div className="upload-empty"><div className="upload-symbol"><Upload size={28} /></div><h3>Start with your footage</h3><p>Drop a video in. We’ll inspect the frames and prepare your editing workspace.</p><label htmlFor="video-upload" className="button button-primary"><Plus size={16} /> Upload video</label><span className="file-types">MP4 · WEBM · MOV · browser-supported formats</span></div>}
