@@ -123,8 +123,8 @@ export default function Studio() {
 
   useEffect(() => {
     if (!restored) return;
-    setSaved("saving");
     const timer = window.setTimeout(async () => {
+      setSaved("saving");
       try {
         await saveProject({ id: "latest", updatedAt: Date.now(), settings, videoBlob: videoFile ?? undefined, videoName: videoFile?.name, audioBlob: audioFile ?? undefined, audioName: audioFile?.name });
         setSaved("saved");
@@ -203,7 +203,6 @@ export default function Studio() {
   };
 
   const reset = async () => {
-    if (frameRef.current) cancelAnimationFrame(frameRef.current);
     if (videoRef.current) { videoRef.current.pause(); videoRef.current.removeAttribute("src"); videoRef.current.load(); }
     if (videoUrl) URL.revokeObjectURL(videoUrl);
     if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -314,7 +313,6 @@ export default function Studio() {
 
   const removeAudio = () => { if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(""); setAudioFile(null); setNotice("Soundtrack removed."); };
   const moveToMarker = (time: number) => { if (videoRef.current) { videoRef.current.currentTime = time; videoRef.current.pause(); setPreviewPlaying(false); } };
-  const pct = duration ? Math.min(100, Math.max(0, ((videoRef.current?.currentTime || 0) / duration) * 100)) : 0;
 
   return (
     <main className="app-shell">
