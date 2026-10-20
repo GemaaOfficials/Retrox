@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import "./download.css";
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownToLine, ArrowUpRight, Check, CircleHelp, Download, Github, LoaderCircle, MonitorDown, ShieldCheck, Sparkles, X } from "lucide-react";
 
