@@ -129,7 +129,7 @@ function buildVideoFilters(settings, directory) {
     if (settings.title) {
       const titlePath = path.join(directory, "title.txt");
       fs.writeFileSync(titlePath, settings.title, "utf8");
-      filters.push(`drawtext=fontfile='${fontFile}':textfile='${titlePath}':expansion=none:fontcolor=white:fontsize=h*0.052:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h*0.78:alpha=${settings.animatedTitles ? "min(1,t*3.8)" : "1"}`);
+      filters.push(`drawtext=fontfile='${fontFile}':textfile='${titlePath}':expansion=none:fontcolor=white:fontsize=h*0.052:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h*0.78:alpha=${settings.animatedTitles ? "'min(1,t*3.8)'" : "1"}`);
     }
     if (settings.subtitle) {
       const subtitlePath = path.join(directory, "subtitle.txt");
@@ -260,7 +260,7 @@ app.post("/api/render", authenticate, renderLimiter, (req, res, next) => {
     const audio = files.audio?.[0];
     let directory = null;
     try {
-      if (!video) return res.status(400).json({ error: "A video file is required.", code: "VIDEO_REQUIRED" });
+      if (!video) { if (audio?.path) await fsp.rm(audio.path, { force: true }); return res.status(400).json({ error: "A video file is required.", code: "VIDEO_REQUIRED" }); }
       if (activeCount + queue.length >= MAX_ACTIVE + MAX_QUEUE) {
         await fsp.rm(video.path, { force: true }); if (audio) await fsp.rm(audio.path, { force: true });
         return res.status(429).json({ error: "The render queue is full. Try again in a few minutes.", code: "QUEUE_FULL" });
