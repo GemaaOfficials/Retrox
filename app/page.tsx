@@ -300,6 +300,8 @@ export default function Studio() {
     setExporting(true); setNotice(""); setPlanLabel("RENDERING LOCALLY");
     setProgress({ percent: 0, title: "Preparing the remix", detail: "Building the live render pipeline…" });
     let recorder: MediaRecorder | null = null;
+    let recorderDone: Promise<void> | null = null;
+    let recorderStarted = false;
     let audioContext: AudioContext | null = audioContextRef.current;
     let soundtrack: HTMLAudioElement | null = null;
     let musicSourceNode: MediaElementAudioSourceNode | null = null;
@@ -357,7 +359,7 @@ export default function Studio() {
       recorder = new MediaRecorder(stream, supported ? { mimeType: supported, videoBitsPerSecond: 7_000_000 } : { videoBitsPerSecond: 7_000_000 });
       const chunks: BlobPart[] = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-      const completed = new Promise<void>((resolve, reject) => { if (!recorder) return reject(new Error("Recorder could not be created.")); recorder.onstop = () => resolve(); recorder.onerror = () => reject(new Error("Browser recording failed.")); });
+      recorderDone = new Promise<void>((resolve, reject) => { if (!recorder) return reject(new Error("Recorder could not be created.")); recorder.onstop = () => resolve(); recorder.onerror = () => reject(new Error("Browser recording failed.")); });
       let lastProgressAt = 0;
       let nextQuickCut = 0;
       const drawFrame = () => {
@@ -402,7 +404,7 @@ export default function Studio() {
       };
       if (audioContext.state === "suspended") await audioContext.resume();
       if (soundtrack) { soundtrack.currentTime = 0; await soundtrack.play().catch(() => undefined); }
-      recorder.start(250); drawFrame();
+      recorder.start(250); recorderStarted = true; drawFrame();
       await video.play();
       await new Promise<void>((resolve, reject) => {
         const done = () => resolve();
@@ -411,7 +413,7 @@ export default function Studio() {
         check();
         window.setTimeout(() => { if (!video.ended && video.paused) reject(new Error("Playback paused during export. Keep the tab open and retry.")); }, Math.max(20_000, duration / (settings.speed / 100) * 1000 + 15_000));
       });
-      stopped = true; cancelAnimationFrame(raf); recorder.stop(); await completed;
+      stopped = true; cancelAnimationFrame(raf); recorder.stop(); await recorderDone;
       const type = recorder.mimeType || "video/webm"; const blob = new Blob(chunks, { type });
       const name = (videoFile.name.replace(/\.[^.]+$/, "") || "reeditx") + "-remix.webm";
       const downloadUrl = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = downloadUrl; link.download = name; document.body.appendChild(link); link.click(); link.remove();
@@ -424,17 +426,21 @@ export default function Studio() {
     } finally {
       stopped = true; if (raf) cancelAnimationFrame(raf); if (video) { video.pause(); video.playbackRate = settings.speed / 100; }
       if (soundtrack) { soundtrack.pause(); soundtrack.src = ""; }
+      if (recorderStarted && recorder && recorder.state !== "inactive") {
+        try { recorder.stop(); } catch { /* The recorder may already have stopped after a browser error. */ }
+      }
+      if (recorderStarted && recorderDone) await recorderDone.catch(() => undefined);
+      const pipeline = videoAudioRef.current;
+      if (pipeline?.element === video) {
+        if (mixer) { try { pipeline.gain.disconnect(mixer); } catch { /* Connection may already be released. */ } }
+        pipeline.gain.gain.setValueAtTime(settings.sourceVolume / 100, pipeline.source.context.currentTime);
+        pipeline.monitor.gain.setValueAtTime(1, pipeline.source.context.currentTime);
+      }
       if (mixer) {
-        const pipeline = videoAudioRef.current;
-        if (pipeline?.element === video) {
-          try { pipeline.gain.disconnect(mixer); } catch { /* Connection may already be released. */ }
-          pipeline.gain.gain.setValueAtTime(settings.sourceVolume / 100, pipeline.source.context.currentTime);
-          pipeline.monitor.gain.setValueAtTime(1, pipeline.source.context.currentTime);
-        }
         if (musicGain) { try { musicGain.disconnect(mixer); } catch { /* Already disconnected. */ } }
-        if (musicSourceNode) musicSourceNode.disconnect();
         mixer.disconnect();
       }
+      if (musicSourceNode) musicSourceNode.disconnect();
       if (streamDestination) streamDestination.stream.getTracks().forEach(track => track.stop());
       if (renderStream) renderStream.getTracks().forEach(track => track.stop());
       exportingRef.current = false;
