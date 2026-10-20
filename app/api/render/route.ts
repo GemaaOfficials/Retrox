@@ -59,9 +59,9 @@ function parseUpload(request: Request, directory: string): Promise<UploadResult>
     if (!contentType?.toLowerCase().startsWith("multipart/form-data")) {
       reject(Object.assign(new Error("Upload must use multipart/form-data."), { status: 415 })); return;
     }
-    let parser: ReturnType<typeof Busboy>;
+    let parser: InstanceType<typeof Busboy>;
     try {
-      parser = Busboy({
+      parser = new Busboy({
         headers: { "content-type": contentType },
         limits: { files: 2, fileSize: MAX_FILE_BYTES, fields: 8, fieldSize: 16 * 1024, parts: 10, headerPairs: 100 },
       });
