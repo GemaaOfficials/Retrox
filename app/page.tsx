@@ -1,6 +1,7 @@
 "use client";
 
 import { type ChangeEvent, type SyntheticEvent, useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   Activity, AudioLines, Check, ChevronDown, Clapperboard, Download, Film,
   Layers3, LoaderCircle, Music2, Pause, Play, Plus, RefreshCw, Scissors,
@@ -35,11 +36,13 @@ const niceSize = (n: number) => n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` 
 async function detectSceneChanges(url: string, duration: number, update: (value: number) => void): Promise<number[]> {
   if (duration < 3) return [];
   const source = document.createElement("video");
-  source.preload = "auto"; source.muted = true; source.playsInline = true; source.src = url;
+  source.preload = "auto"; source.muted = true; source.playsInline = true;
   await new Promise<void>((resolve, reject) => {
-    source.onloadeddata = () => resolve();
-    source.onerror = () => reject(new Error("This browser cannot analyse the uploaded video format."));
-    window.setTimeout(() => reject(new Error("Timed out while reading the video frames.")), 20000);
+    const timer = window.setTimeout(() => reject(new Error("Timed out while reading the video frames.")), 20000);
+    source.onloadeddata = () => { window.clearTimeout(timer); resolve(); };
+    source.onerror = () => { window.clearTimeout(timer); reject(new Error("This browser cannot analyse the uploaded video format.")); };
+    source.src = url;
+    source.load();
   });
   const canvas = document.createElement("canvas"); canvas.width = 36; canvas.height = 20;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -397,7 +400,7 @@ export default function Studio() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <a className="brand" href="/" aria-label="ReEditX home"><span className="brand-mark"><Clapperboard size={21} strokeWidth={2.4} /></span><span><strong>ReEdit<span>X</span></strong><small>YOUR FOOTAGE. YOUR RULES.</small></span></a>
+        <Link className="brand" href="/" aria-label="ReEditX home"><span className="brand-mark"><Clapperboard size={21} strokeWidth={2.4} /></span><span><strong>ReEdit<span>X</span></strong><small>YOUR FOOTAGE. YOUR RULES.</small></span></a>
         <div className="topbar-right">
           <span className={serverStatus === "online" ? "api-state online" : "api-state"}><i />{serverStatus === "checking" ? "CONNECTING" : serverStatus === "online" ? "LOCAL ENGINE ONLINE" : "OFFLINE MODE"}</span>
           <div className="save-state">{saved === "saving" ? <LoaderCircle size={14} className="spin" /> : saved === "error" ? <X size={14} /> : <Check size={14} />}{saved === "saving" ? "Saving project" : saved === "error" ? "Save issue" : "Autosaved locally"}</div>
