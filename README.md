@@ -6,7 +6,7 @@ ReEditX is a creator-focused video remix studio with a Windows desktop setup pac
 
 The download portal is the root route: `/`. It features an animated red-ribbon ReEditX.setup concept and checks GitHub Releases before downloading the Windows setup executable.
 
-**The first Windows installer has to be built and published once.** In GitHub, open **Actions → Build ReEditX.setup for Windows → Run workflow**, keep the default release tag `v1.0.0`, and run it. The workflow builds `ReEditX.setup-1.0.0.exe` and publishes it to Releases. After that, the portal can download the published installer. The portal intentionally does not fake a download if no installer has been published.
+**The Windows installer is built and published automatically by the `Build ReEditX.setup for Windows` workflow on pushes to `main`. It refreshes the rolling `latest` GitHub Release with a versioned `ReEditX.setup-*.exe` asset. You can also start the workflow manually for a named version tag. The portal never fakes a download if the release asset is unavailable.
 
 Workflow file: [release-desktop.yml](.github/workflows/release-desktop.yml)
 
