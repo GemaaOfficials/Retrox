@@ -3,7 +3,7 @@
 import Link from "next/link";
 import "./download.css";
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, ArrowUpRight, Check, CircleHelp, Download, Github, LoaderCircle, MonitorDown, ShieldCheck, Sparkles, X } from "lucide-react";
+import { ArrowDownToLine, ArrowUpRight, Check, Download, Github, LoaderCircle, MonitorDown, ShieldCheck, Sparkles, X } from "lucide-react";
 
 type InstallerInfo = { available: boolean; version?: string; asset?: { name: string; downloadUrl: string; size: number }; releasesUrl: string; message?: string };
 type DownloadState = "idle" | "preparing" | "complete" | "unavailable" | "error";
