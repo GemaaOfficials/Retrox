@@ -2,8 +2,8 @@
 
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
-  Activity, AudioLines, Check, ChevronDown, Clapperboard, Download, Film, FolderOpen,
-  Gauge, Layers3, LoaderCircle, Music2, Pause, Play, Plus, RefreshCw, Save, Scissors,
+  Activity, AudioLines, Check, ChevronDown, Clapperboard, Download, Film,
+  Layers3, LoaderCircle, Music2, Pause, Play, Plus, RefreshCw, Scissors,
   ShieldCheck, SlidersHorizontal, Sparkles, Upload, WandSparkles, X,
 } from "lucide-react";
 import { clearProject, loadProject, saveProject, type Aspect, type FilterPreset, type ProjectSettings, type Rhythm } from "@/lib/project-db";
@@ -68,8 +68,6 @@ async function detectSceneChanges(url: string, duration: number, update: (value:
   } finally { source.removeAttribute("src"); source.load(); }
   return changes;
 }
-
-function setProgressUI(progress: Progress, callback: (p: Progress) => void) { callback(progress); }
 
 export default function Studio() {
   const videoRef = useRef<HTMLVideoElement>(null);
