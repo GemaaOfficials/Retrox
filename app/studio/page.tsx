@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   Activity, AudioLines, Check, ChevronDown, Clapperboard, Download, Film,
   Layers3, LoaderCircle, Music2, Pause, Play, Plus, RefreshCw, Scissors,
-  ShieldCheck, SlidersHorizontal, Sparkles, Upload, WandSparkles, X,
+  ShieldCheck, SlidersHorizontal, Sparkles, Upload, WandSparkles, X, Server,
 } from "lucide-react";
 import { clearProject, loadProject, saveProject, type Aspect, type FilterPreset, type ProjectSettings, type Rhythm } from "@/lib/project-db";
 
@@ -105,6 +105,7 @@ export default function Studio() {
   const [progress, setProgress] = useState<Progress>({ percent: 0, title: "", detail: "" });
   const [activePanel, setActivePanel] = useState<"look" | "sound" | "text">("look");
   const [serverStatus, setServerStatus] = useState<"checking" | "online" | "offline">("checking");
+  const [renderServerStatus, setRenderServerStatus] = useState<"checking" | "ready" | "offline">("checking");
   const [planLabel, setPlanLabel] = useState("READY TO CREATE");
   const [showScenes, setShowScenes] = useState(true);
   const [titleVisible, setTitleVisible] = useState(true);
@@ -121,6 +122,15 @@ export default function Studio() {
       .catch(() => { /* The local editor remains usable without the server. */ });
     return () => { active = false; };
   }, [duration, settings.rhythm, settings.preset]);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/server-render/health", { cache: "no-store" })
+      .then(async response => ({ response, data: await response.json().catch(() => ({})) }))
+      .then(({ response, data }) => { if (active) setRenderServerStatus(response.ok && data.available === true ? "ready" : "offline"); })
+      .catch(() => { if (active) setRenderServerStatus("offline"); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -448,6 +458,68 @@ export default function Studio() {
     }
   };
 
+  const renderOnServer = async () => {
+    if (!videoFile || inspecting || exporting) return;
+    setExporting(true);
+    setNotice("");
+    setPlanLabel("UPLOADING TO RENDER SERVER");
+    setProgress({ percent: 0, title: "Preparing server render", detail: "Connecting to the protected FFmpeg worker…" });
+    try {
+      const payload = new FormData();
+      payload.append("video", videoFile, videoFile.name);
+      if (audioFile) payload.append("audio", audioFile, audioFile.name);
+      payload.append("settings", JSON.stringify({
+        speed: settings.speed / 100,
+        volume: settings.volume,
+        sourceVolume: settings.sourceVolume,
+        fadeIn: settings.fadeIn,
+        fadeOut: settings.fadeOut,
+        aspect: settings.aspect,
+        preset: settings.preset,
+        rhythm: settings.rhythm,
+        title: settings.title,
+        subtitle: settings.subtitle,
+        animatedTitles: settings.animatedTitles,
+        useQuickCuts: settings.useQuickCuts,
+      }));
+      const createResponse = await fetch("/api/server-render", { method: "POST", body: payload });
+      const created = await createResponse.json().catch(() => ({}));
+      if (!createResponse.ok || !created.jobId) throw new Error(created.error || "Could not submit the render job.");
+      const jobId = String(created.jobId);
+      const startedAt = Date.now();
+      setProgress({ percent: 1, title: "Render queued", detail: "Your files reached the render worker. Preparing the MP4 job…" });
+      let complete = false;
+      while (!complete) {
+        if (Date.now() - startedAt > 3 * 60 * 60 * 1000) throw new Error("Server render timed out. The worker may still clean up the job.");
+        await new Promise(resolve => window.setTimeout(resolve, 1100));
+        const statusResponse = await fetch("/api/server-render/" + encodeURIComponent(jobId), { cache: "no-store" });
+        const status = await statusResponse.json().catch(() => ({}));
+        if (!statusResponse.ok) throw new Error(status.error || "Lost contact with the render job.");
+        if (status.status === "failed") throw new Error(status.error || status.message || "The FFmpeg worker could not complete this render.");
+        if (status.status === "complete") {
+          complete = true;
+          setProgress({ percent: 100, title: "Server render complete", detail: "The MP4 is ready. Starting a secure download from your render job…" });
+          break;
+        }
+        const percent = Math.max(1, Math.min(97, Number(status.percent) || 1));
+        setProgress({ percent, title: status.status === "queued" ? "Waiting for the render server" : "Rendering on the server", detail: status.message || "FFmpeg is processing your video and audio…" });
+      }
+      const anchor = document.createElement("a");
+      anchor.href = "/api/server-render/" + encodeURIComponent(jobId) + "/download";
+      anchor.download = (videoFile.name.replace(/\.[^.]+$/, "") || "reeditx") + "-server-remix.mp4";
+      document.body.appendChild(anchor); anchor.click(); anchor.remove();
+      setNotice("Server render is complete. Your MP4 download has started.");
+      setPlanLabel("SERVER EXPORT COMPLETE");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Server rendering failed.";
+      setProgress({ percent: 0, title: "Server render could not finish", detail: message });
+      setNotice(message);
+      setPlanLabel("SERVER RENDER ERROR");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const removeAudio = () => { if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(""); setAudioFile(null); setNotice("Soundtrack removed."); };
   const moveToMarker = (time: number) => { if (videoRef.current) { videoRef.current.currentTime = time; videoRef.current.pause(); setPreviewPlaying(false); } };
 
@@ -528,7 +600,7 @@ export default function Studio() {
             <div className="panel-bottom"><div className="engine-line"><span className="engine-dot"/><span>REEDITX RULES ENGINE</span><small>NO AI</small></div><div className="api-line"><span>BACKEND</span><b className={serverStatus==="online"?"good":""}>{serverStatus==="online"?"CONNECTED":serverStatus==="checking"?"CHECKING":"LOCAL UI"}</b></div></div>
           </div>
 
-          <div className="panel export-card"><div className="export-card-top"><span className="eyebrow">FINAL OUTPUT</span><span className="export-type">WEBM / 30 FPS</span></div><h3>Bring the cut to life.</h3><p>Render your source, titles, visual treatment and soundtrack into one video. Processing happens locally in real time.</p><button className="button button-primary export-button" onClick={exportRemix} disabled={!videoFile || inspecting || exporting}><span>{exporting?<LoaderCircle size={16} className="spin"/>:<Download size={16}/>}</span>{exporting?"Exporting remix…":"Export remix"}{!exporting&&<span className="export-arrow">↗</span>}</button>{!videoFile&&<small className="export-hint">Upload a video to unlock export.</small>}{videoFile&&inspecting&&<small className="export-hint">Waiting for frame inspection to finish.</small>}{videoFile&&!inspecting&&<small className="export-hint">Keep this tab open while exporting.</small>}<div className="export-note"><ShieldCheck size={13}/> No account. Media stays in browser storage.</div></div>
+          <div className="panel export-card"><div className="export-card-top"><span className="eyebrow">FINAL OUTPUT</span><span className="export-type">LOCAL WEBM</span></div><h3>Bring the cut to life.</h3><p>Export locally for privacy, or use the server renderer for FFmpeg-powered MP4 output on a dedicated worker.</p><button className="button button-primary export-button" onClick={exportRemix} disabled={!videoFile || inspecting || exporting}><span>{exporting?<LoaderCircle size={16} className="spin"/>:<Download size={16}/>}</span>{exporting?"Rendering…":"Export locally"}{!exporting&&<span className="export-arrow">↗</span>}</button><button className="button button-server export-button" onClick={renderOnServer} disabled={!videoFile || inspecting || exporting || renderServerStatus!=="ready"}><span>{exporting?<LoaderCircle size={16} className="spin"/>:<Server size={16}/>}</span>{exporting?"Server processing…":renderServerStatus==="checking"?"Checking render server…":"Render on server"}{!exporting&&<span className="export-arrow">↗</span>}</button>{!videoFile&&<small className="export-hint">Upload a video to unlock exports.</small>}{videoFile&&inspecting&&<small className="export-hint">Waiting for frame inspection to finish.</small>}{videoFile&&!inspecting&&renderServerStatus==="ready"&&<small className="export-hint cloud-ready">Dedicated FFmpeg worker connected · MP4</small>}{videoFile&&!inspecting&&renderServerStatus!=="ready"&&<small className="export-hint">Server export requires a deployed render worker.</small>}<div className="export-note"><ShieldCheck size={13}/> Local assets stay in browser storage; server exports upload them for processing.</div></div>
         </aside>
       </div>
       {notice && <div className="toast" role="status"><span>{notice}</span><button aria-label="Dismiss message" onClick={()=>setNotice("")}><X size={13}/></button></div>}
