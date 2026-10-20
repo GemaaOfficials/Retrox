@@ -79,6 +79,7 @@ export default function Studio() {
   const soundtrackRef = useRef<HTMLAudioElement>(null);
   const cutsRef = useRef<number[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const exportingRef = useRef(false);
   const videoAudioRef = useRef<VideoAudioPipeline | null>(null);
   const videoUrlRef = useRef("");
   const audioUrlRef = useRef("");
@@ -249,6 +250,7 @@ export default function Studio() {
   };
 
   const handleVideoPlay = () => {
+    if (exportingRef.current) return;
     setPreviewPlaying(true);
     alignPreviewSoundtrack();
   };
@@ -288,6 +290,7 @@ export default function Studio() {
     const video = videoRef.current;
     if (!video || !videoFile || exporting) return;
     if (!("MediaRecorder" in window) || !("captureStream" in HTMLCanvasElement.prototype)) { setNotice("Your browser lacks canvas recording support. Please use an up-to-date desktop Chrome or Edge."); return; }
+    exportingRef.current = true;
     setExporting(true); setNotice(""); setPlanLabel("RENDERING LOCALLY");
     setProgress({ percent: 0, title: "Preparing the remix", detail: "Building the live render pipeline…" });
     let recorder: MediaRecorder | null = null;
@@ -428,6 +431,7 @@ export default function Studio() {
       }
       if (streamDestination) streamDestination.stream.getTracks().forEach(track => track.stop());
       if (renderStream) renderStream.getTracks().forEach(track => track.stop());
+      exportingRef.current = false;
       setPreviewPlaying(false); setExporting(false);
     }
   };
