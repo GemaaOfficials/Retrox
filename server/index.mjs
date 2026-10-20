@@ -248,9 +248,13 @@ const upload = multer({
   },
 }).fields([{ name: "video", maxCount: 1 }, { name: "audio", maxCount: 1 }]);
 
-app.get("/health", async (_req, res) => {
-  res.json({ name: "ReEditX Render Worker", status: "ok", engine: "ffmpeg", ffmpegPath: FFMPEG, active: activeCount, queued: queue.length, maxConcurrent: MAX_ACTIVE, maxUploadBytes: MAX_FILE_BYTES, timestamp: new Date().toISOString() });
-});
+const healthHandler = (_req, res) => {
+  res.json({ name: "ReEditX Render Worker", status: "ok", engine: "ffmpeg", active: activeCount, queued: queue.length, maxConcurrent: MAX_ACTIVE, maxUploadBytes: MAX_FILE_BYTES, timestamp: new Date().toISOString() });
+};
+// Public, low-detail endpoint for the hosting platform's health probe.
+app.get("/health", healthHandler);
+// Protected health check used by the Next.js proxy to verify the shared token.
+app.get("/api/health", authenticate, healthHandler);
 
 app.post("/api/render", authenticate, renderLimiter, (req, res, next) => {
   upload(req, res, async error => {
