@@ -369,7 +369,7 @@ export default function Studio() {
       });
       stopped = true; cancelAnimationFrame(raf); recorder.stop(); await completed;
       const type = recorder.mimeType || "video/webm"; const blob = new Blob(chunks, { type });
-      const name = (videoFile.name.replace(/.[^.]+$/, "") || "reeditx") + "-remix.webm";
+      const name = (videoFile.name.replace(/\.[^.]+$/, "") || "reeditx") + "-remix.webm";
       const downloadUrl = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = downloadUrl; link.download = name; document.body.appendChild(link); link.click(); link.remove();
       window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 60_000);
       setProgress({ percent: 100, title: "Your remix is ready", detail: `${niceSize(blob.size)} · downloaded as WebM · rendered on this device` });
@@ -403,7 +403,7 @@ export default function Studio() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <Link className="brand" href="/" aria-label="ReEditX home"><span className="brand-mark"><Clapperboard size={21} strokeWidth={2.4} /></span><span><strong>ReEdit<span>X</span></strong><small>YOUR FOOTAGE. YOUR RULES.</small></span></a>
+        <Link className="brand" href="/" aria-label="ReEditX home"><span className="brand-mark"><Clapperboard size={21} strokeWidth={2.4} /></span><span><strong>ReEdit<span>X</span></strong><small>YOUR FOOTAGE. YOUR RULES.</small></span></Link>
         <div className="topbar-right">
           <span className={serverStatus === "online" ? "api-state online" : "api-state"}><i />{serverStatus === "checking" ? "CONNECTING" : serverStatus === "online" ? "LOCAL ENGINE ONLINE" : "OFFLINE MODE"}</span>
           <div className="save-state">{saved === "saving" ? <LoaderCircle size={14} className="spin" /> : saved === "error" ? <X size={14} /> : <Check size={14} />}{saved === "saving" ? "Saving project" : saved === "error" ? "Save issue" : "Autosaved locally"}</div>
