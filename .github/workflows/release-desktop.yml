@@ -1,0 +1,88 @@
+name: Build ReEditX.setup for Windows
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Version tag for the installer release (example: v1.0.0)"
+        required: true
+        type: string
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: reeditx-desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      REEDITX_APP_URL: ${{ vars.REEDITX_APP_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.0"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Bundle Node.js runtime for offline desktop mode
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build-runtime | Out-Null
+          $nodePath = (Get-Command node).Source
+          Copy-Item $nodePath "build-runtime/node.exe" -Force
+          Write-Host "Bundled runtime: $nodePath"
+
+      - name: Configure optional hosted-app URL
+        shell: pwsh
+        env:
+          REEDITX_APP_URL: ${{ vars.REEDITX_APP_URL }}
+        run: |
+          $appUrl = $env:REEDITX_APP_URL
+          if ($appUrl -and -not ($appUrl -match '^https://')) {
+            throw "REEDITX_APP_URL must be a public HTTPS URL."
+          }
+          $json = ConvertTo-Json -Compress @{ appUrl = $appUrl }
+          Set-Content -Path "desktop/config.cjs" -Value "module.exports = $json;" -Encoding utf8
+          Write-Host "Hosted application URL configured: $([bool]$appUrl)"
+
+      - name: Build Next.js standalone application
+        run: npm run build
+
+      - name: Build ReEditX.setup.exe
+        run: npm run desktop:build
+
+      - name: List installer artifacts
+        shell: pwsh
+        run: Get-ChildItem release -Filter "*.exe" | Format-Table Name, Length
+
+      - name: Publish installer to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          name: ReEditX ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          files: release/ReEditX.setup-*.exe
+          generate_release_notes: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
