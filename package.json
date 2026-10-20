@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "desktop:dev": "electron .",
+    "desktop:build": "electron-builder --win nsis --x64"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
@@ -22,9 +24,71 @@
     "@types/react-dom": "^19.2.0",
     "eslint": "^9.22.0",
     "eslint-config-next": "^16.4.2",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "electron": "44.9.1",
+    "electron-builder": "26.15.3"
   },
   "engines": {
     "node": ">=20.9.0"
+  },
+  "main": "desktop/main.cjs",
+  "build": {
+    "appId": "com.gemaaofficials.reeditx",
+    "productName": "ReEditX",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".next/standalone",
+        "to": "app-server",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": ".next/static",
+        "to": "app-server/.next/static",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "public",
+        "to": "app-server/public",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "build-runtime/node.exe",
+        "to": "node.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "ReEditX.setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ReEditX",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    }
   }
 }
