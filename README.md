@@ -68,7 +68,7 @@ The Google Fonts import in `app/globals.css` is optional and only affects typogr
 - Export happens in real time: keep the tab open and do not pause playback until it finishes.
 - Output is WebM, not guaranteed MP4. Browser codec support and hardware affect export stability/performance.
 - Scene detection is a local frame-difference heuristic, so it may miss cuts or flag fast movement/flashes. Markers are suggestions, not a professional vision model.
-- The rhythm presets define deterministic pacing suggestions and preview speed. They do not yet reconstruct a complete beat-synchronized montage or automatically remove arbitrary sections.
+- Punchy quick-cut mode skips a few frames at detected scene boundaries and adds a brief flash accent. It does not yet reconstruct a full beat-synchronized montage or support arbitrary user-defined trim ranges.
 - Browser capture APIs differ by browser; desktop Chrome/Edge is the recommended target.
 - Large videos can use substantial browser storage and memory. IndexedDB quota is controlled by the browser/OS, not by ReEditX.
 
