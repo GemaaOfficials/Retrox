@@ -1,6 +1,7 @@
 FROM node:24-bookworm-slim
 ENV NODE_ENV=production
 ENV PORT=8787
+ENV REEDITX_JOB_DIR=/data/reeditx-jobs
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY package.json ./

@@ -28,13 +28,12 @@ jobs:
       REEDITX_APP_URL: ${{ vars.REEDITX_APP_URL }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
-          cache: npm
 
       - name: Install dependencies
         run: npm install
@@ -79,7 +78,7 @@ jobs:
         run: Get-ChildItem release -Filter "*.exe" | Format-Table Name, Length
 
       - name: Publish installer to GitHub Releases
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'latest') || inputs.release_tag || github.ref_name }}
           name: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'ReEditX Latest') || format('ReEditX {0}', inputs.release_tag || github.ref_name) }}
