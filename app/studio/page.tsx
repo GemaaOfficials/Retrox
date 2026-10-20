@@ -54,6 +54,8 @@ async function detectSceneChanges(url: string, duration: number, update: (value:
     for (let i = 0; i < samples; i++) {
       const time = Math.min(Math.max(.05, duration - .08), i * (duration / samples));
       await new Promise<void>((resolve) => {
+        // The first sample is often already at time zero; don't wait for an event that won't fire.
+        if (Math.abs(source.currentTime - time) < 0.025) { resolve(); return; }
         const timer = window.setTimeout(resolve, 2500);
         source.onseeked = () => { window.clearTimeout(timer); resolve(); };
         try { source.currentTime = time; } catch { window.clearTimeout(timer); resolve(); }
