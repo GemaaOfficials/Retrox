@@ -210,6 +210,7 @@ export default function Studio() {
 
   const onVideo = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
+    event.currentTarget.value = "";
     skipSaveRef.current = false;
     if (!file.type.startsWith("video/")) { setNotice("Please choose a video file."); return; }
     if (videoUrl) URL.revokeObjectURL(videoUrl);
@@ -219,6 +220,7 @@ export default function Studio() {
   };
   const onAudio = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; if (!file) return;
+    event.currentTarget.value = "";
     skipSaveRef.current = false;
     if (!file.type.startsWith("audio/")) { setNotice("Please choose an audio file, such as MP3, WAV or M4A."); return; }
     if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -265,7 +267,7 @@ export default function Studio() {
     let renderStream: MediaStream | null = null;
     let raf = 0; let stopped = false;
     try {
-      video.pause(); video.currentTime = 0; video.playbackRate = settings.speed / 100; video.volume = settings.sourceVolume / 100;
+      video.pause(); video.currentTime = 0; video.playbackRate = settings.speed / 100; video.volume = 1;
       const sourceWidth = video.videoWidth || 1280, sourceHeight = video.videoHeight || 720;
       let width = Math.min(1920, sourceWidth), height = Math.round(width * sourceHeight / sourceWidth);
       if (settings.aspect === "landscape") { width = 1280; height = 720; }
