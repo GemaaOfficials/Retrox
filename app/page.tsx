@@ -10,6 +10,7 @@ import { clearProject, loadProject, saveProject, type Aspect, type FilterPreset,
 
 type Scene = { id: number; start: number; end: number; duration: number; label: string };
 type Progress = { percent: number; title: string; detail: string };
+type VideoAudioPipeline = { element: HTMLVideoElement; source: MediaElementAudioSourceNode; gain: GainNode; monitor: GainNode };
 
 const defaults: ProjectSettings = {
   title: "", subtitle: "", volume: 70, sourceVolume: 85, speed: 100, fadeIn: 1, fadeOut: 2,
@@ -73,6 +74,8 @@ export default function Studio() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const musicPreviewRef = useRef<HTMLAudioElement>(null);
   const cutsRef = useRef<number[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const videoAudioRef = useRef<VideoAudioPipeline | null>(null);
   const videoUrlRef = useRef("");
   const audioUrlRef = useRef("");
   const settingsRef = useRef<ProjectSettings>(defaults);
@@ -150,7 +153,13 @@ export default function Studio() {
     const video = videoRef.current;
     if (!video) return;
     video.playbackRate = settings.speed / 100;
-    video.volume = settings.sourceVolume / 100;
+    const pipeline = videoAudioRef.current;
+    if (pipeline?.element === video && audioContextRef.current) {
+      video.volume = 1;
+      pipeline.gain.gain.setTargetAtTime(settings.sourceVolume / 100, audioContextRef.current.currentTime, 0.025);
+    } else {
+      video.volume = settings.sourceVolume / 100;
+    }
     video.style.filter = filters[settings.preset];
   }, [settings.speed, settings.sourceVolume, settings.preset, videoUrl]);
 
@@ -164,6 +173,9 @@ export default function Studio() {
   useEffect(() => () => {
     if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
     if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    const pipeline = videoAudioRef.current;
+    if (pipeline) { pipeline.source.disconnect(); pipeline.gain.disconnect(); pipeline.monitor.disconnect(); }
+    if (audioContextRef.current && audioContextRef.current.state !== "closed") void audioContextRef.current.close();
   }, []);
 
   const patch = useCallback(<K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]) => {
@@ -240,7 +252,14 @@ export default function Studio() {
     if (!("MediaRecorder" in window) || !("captureStream" in HTMLCanvasElement.prototype)) { setNotice("Your browser lacks canvas recording support. Please use an up-to-date desktop Chrome or Edge."); return; }
     setExporting(true); setNotice(""); setPlanLabel("RENDERING LOCALLY");
     setProgress({ percent: 0, title: "Preparing the remix", detail: "Building the live render pipeline…" });
-    let recorder: MediaRecorder | null = null; let audioContext: AudioContext | null = null; let soundtrack: HTMLAudioElement | null = null; let raf = 0; let stopped = false;
+    let recorder: MediaRecorder | null = null;
+    let audioContext: AudioContext | null = audioContextRef.current;
+    let soundtrack: HTMLAudioElement | null = null;
+    let musicSourceNode: MediaElementAudioSourceNode | null = null;
+    let musicGain: GainNode | null = null;
+    let mixer: GainNode | null = null;
+    let streamDestination: MediaStreamAudioDestinationNode | null = null;
+    let raf = 0; let stopped = false;
     try {
       video.pause(); video.currentTime = 0; video.playbackRate = settings.speed / 100; video.volume = settings.sourceVolume / 100;
       const sourceWidth = video.videoWidth || 1280, sourceHeight = video.videoHeight || 720;
@@ -252,23 +271,38 @@ export default function Studio() {
       const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext("2d"); if (!ctx) throw new Error("Could not start the video render canvas.");
       const stream = canvas.captureStream(30);
-      const videoCapture = (video as HTMLVideoElement & { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream });
-      const originalStream = videoCapture.captureStream?.() ?? videoCapture.mozCaptureStream?.();
-      originalStream?.getAudioTracks().forEach(track => stream.addTrack(track));
-      audioContext = new AudioContext();
+      audioContext = audioContextRef.current ?? new AudioContext();
+      audioContextRef.current = audioContext;
+      let pipeline = videoAudioRef.current;
+      if (!pipeline || pipeline.element !== video) {
+        if (pipeline) { pipeline.source.disconnect(); pipeline.gain.disconnect(); pipeline.monitor.disconnect(); }
+        const source = audioContext.createMediaElementSource(video);
+        const gain = audioContext.createGain();
+        const monitor = audioContext.createGain();
+        source.connect(gain); gain.connect(monitor); monitor.connect(audioContext.destination);
+        pipeline = { element: video, source, gain, monitor };
+        videoAudioRef.current = pipeline;
+      }
+      pipeline.gain.gain.setValueAtTime(settings.sourceVolume / 100, audioContext.currentTime);
+      // Original audio and added music are mixed down to ONE output track for MediaRecorder compatibility.
+      pipeline.monitor.gain.setValueAtTime(0, audioContext.currentTime);
+      mixer = audioContext.createGain();
+      streamDestination = audioContext.createMediaStreamDestination();
+      mixer.connect(streamDestination);
+      pipeline.gain.connect(mixer);
+      streamDestination.stream.getAudioTracks().forEach(track => stream.addTrack(track));
       if (audioUrl && audioFile) {
-        soundtrack = new Audio(audioUrl); soundtrack.preload = "auto";
-        const source = audioContext.createMediaElementSource(soundtrack);
-        const gain = audioContext.createGain(); const volume = settings.volume / 100;
-        gain.gain.setValueAtTime(0, audioContext.currentTime);
-        gain.gain.linearRampToValueAtTime(volume, audioContext.currentTime + Math.max(.05, settings.fadeIn));
-        if (settings.fadeOut > 0 && duration > settings.fadeOut) {
-          gain.gain.setValueAtTime(volume, audioContext.currentTime + Math.max(0, duration / (settings.speed / 100) - settings.fadeOut));
-          gain.gain.linearRampToValueAtTime(0, audioContext.currentTime + duration / (settings.speed / 100));
+        soundtrack = new Audio(audioUrl); soundtrack.preload = "auto"; soundtrack.loop = false;
+        musicSourceNode = audioContext.createMediaElementSource(soundtrack);
+        musicGain = audioContext.createGain(); const volume = settings.volume / 100;
+        musicGain.gain.setValueAtTime(0, audioContext.currentTime);
+        musicGain.gain.linearRampToValueAtTime(volume, audioContext.currentTime + Math.max(.05, settings.fadeIn));
+        if (settings.fadeOut > 0 && duration / (settings.speed / 100) > settings.fadeOut) {
+          const outputDuration = duration / (settings.speed / 100);
+          musicGain.gain.setValueAtTime(volume, audioContext.currentTime + Math.max(0, outputDuration - settings.fadeOut));
+          musicGain.gain.linearRampToValueAtTime(0, audioContext.currentTime + outputDuration);
         }
-        source.connect(gain); gain.connect(audioContext.destination);
-        const musicStream = audioContext.createMediaStreamDestination();
-        gain.connect(musicStream); musicStream.stream.getAudioTracks().forEach(track => stream.addTrack(track));
+        musicSourceNode.connect(musicGain); musicGain.connect(mixer);
       }
       const supported = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"].find(type => MediaRecorder.isTypeSupported(type));
       recorder = new MediaRecorder(stream, supported ? { mimeType: supported, videoBitsPerSecond: 7_000_000 } : { videoBitsPerSecond: 7_000_000 });
@@ -341,7 +375,18 @@ export default function Studio() {
     } finally {
       stopped = true; if (raf) cancelAnimationFrame(raf); if (video) { video.pause(); video.playbackRate = settings.speed / 100; }
       if (soundtrack) { soundtrack.pause(); soundtrack.src = ""; }
-      if (audioContext) await audioContext.close().catch(() => undefined);
+      if (mixer) {
+        const pipeline = videoAudioRef.current;
+        if (pipeline?.element === video) {
+          try { pipeline.gain.disconnect(mixer); } catch { /* Connection may already be released. */ }
+          pipeline.gain.gain.setValueAtTime(settings.sourceVolume / 100, pipeline.source.context.currentTime);
+          pipeline.monitor.gain.setValueAtTime(1, pipeline.source.context.currentTime);
+        }
+        if (musicGain) { try { musicGain.disconnect(mixer); } catch { /* Already disconnected. */ } }
+        if (musicSourceNode) musicSourceNode.disconnect();
+        mixer.disconnect();
+      }
+      if (streamDestination) streamDestination.stream.getTracks().forEach(track => track.stop());
       setPreviewPlaying(false); setExporting(false);
     }
   };
