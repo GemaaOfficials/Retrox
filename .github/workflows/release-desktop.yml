@@ -2,6 +2,7 @@ name: Build ReEditX.setup for Windows
 
 on:
   push:
+    branches: [main]
     tags:
       - "v*"
   workflow_dispatch:
@@ -16,7 +17,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: reeditx-desktop-release-${{ github.ref }}
+  group: reeditx-desktop-release
   cancel-in-progress: false
 
 jobs:
@@ -58,12 +59,14 @@ jobs:
           REEDITX_APP_URL: ${{ vars.REEDITX_APP_URL }}
         run: |
           $appUrl = $env:REEDITX_APP_URL
-          if ($appUrl -and -not ($appUrl -match '^https://')) {
-            throw "REEDITX_APP_URL must be a public HTTPS URL."
+          if ($appUrl) {
+            if (-not ($appUrl -match '^https://')) { throw "REEDITX_APP_URL must be a public HTTPS URL." }
+            $json = ConvertTo-Json -Compress @{ appUrl = $appUrl }
+            Set-Content -Path "desktop/config.cjs" -Value "module.exports = $json;" -Encoding utf8
+            Write-Host "Hosted application URL configured from the repository variable."
+          } else {
+            Write-Host "Using the committed desktop/config.cjs default."
           }
-          $json = ConvertTo-Json -Compress @{ appUrl = $appUrl }
-          Set-Content -Path "desktop/config.cjs" -Value "module.exports = $json;" -Encoding utf8
-          Write-Host "Hosted application URL configured: $([bool]$appUrl)"
 
       - name: Build Next.js standalone application
         run: npm run build
@@ -78,11 +81,12 @@ jobs:
       - name: Publish installer to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag || github.ref_name }}
-          name: ReEditX ${{ inputs.release_tag || github.ref_name }}
+          tag_name: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'latest') || inputs.release_tag || github.ref_name }}
+          name: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'ReEditX Latest') || format('ReEditX {0}', inputs.release_tag || github.ref_name) }}
           target_commitish: ${{ github.sha }}
           files: release/ReEditX.setup-*.exe
           generate_release_notes: true
           make_latest: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
