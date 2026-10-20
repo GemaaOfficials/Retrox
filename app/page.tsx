@@ -76,6 +76,7 @@ async function detectSceneChanges(url: string, duration: number, update: (value:
 export default function Studio() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const musicPreviewRef = useRef<HTMLAudioElement>(null);
+  const soundtrackRef = useRef<HTMLAudioElement>(null);
   const cutsRef = useRef<number[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
   const videoAudioRef = useRef<VideoAudioPipeline | null>(null);
@@ -168,7 +169,9 @@ export default function Studio() {
 
   useEffect(() => {
     const audio = musicPreviewRef.current;
+    const soundtrack = soundtrackRef.current;
     if (audio) audio.volume = settings.volume / 100;
+    if (soundtrack) soundtrack.volume = settings.volume / 100;
   }, [settings.volume, audioUrl]);
 
   useEffect(() => { videoUrlRef.current = videoUrl; }, [videoUrl]);
@@ -234,10 +237,40 @@ export default function Studio() {
     void inspect(videoUrl, v.duration, v.videoWidth, v.videoHeight);
   };
 
+  const alignPreviewSoundtrack = () => {
+    const video = videoRef.current;
+    const soundtrack = soundtrackRef.current;
+    if (!video || !soundtrack || !audioUrl) return;
+    soundtrack.volume = settingsRef.current.volume / 100;
+    if (Number.isFinite(soundtrack.duration) && soundtrack.duration > 0) {
+      soundtrack.currentTime = video.currentTime % soundtrack.duration;
+    }
+    void soundtrack.play().catch(() => undefined);
+  };
+
+  const handleVideoPlay = () => {
+    setPreviewPlaying(true);
+    alignPreviewSoundtrack();
+  };
+
+  const handleVideoPause = () => {
+    setPreviewPlaying(false);
+    soundtrackRef.current?.pause();
+  };
+
+  const handleVideoSeeked = () => {
+    const video = videoRef.current;
+    const soundtrack = soundtrackRef.current;
+    if (previewPlaying && video && soundtrack && audioUrl && Number.isFinite(soundtrack.duration) && soundtrack.duration > 0) {
+      soundtrack.currentTime = video.currentTime % soundtrack.duration;
+    }
+  };
+
   const togglePlay = async () => {
     const video = videoRef.current; if (!video) return;
-    if (video.paused) { try { await video.play(); setPreviewPlaying(true); } catch { setNotice("This file could not be played in your browser. Try MP4 (H.264) or WebM."); } }
-    else { video.pause(); setPreviewPlaying(false); }
+    if (video.paused) {
+      try { await video.play(); } catch { setNotice("This file could not be played in your browser. Try MP4 (H.264) or WebM."); }
+    } else video.pause();
   };
 
   const reset = async () => {
@@ -404,6 +437,7 @@ export default function Studio() {
 
   return (
     <main className="app-shell">
+      <audio ref={soundtrackRef} src={audioUrl || undefined} preload="auto" loop style={{ display: "none" }} aria-hidden="true" />
       <header className="topbar">
         <Link className="brand" href="/" aria-label="ReEditX home"><span className="brand-mark"><Clapperboard size={21} strokeWidth={2.4} /></span><span><strong>ReEdit<span>X</span></strong><small>YOUR FOOTAGE. YOUR RULES.</small></span></Link>
         <div className="topbar-right">
@@ -426,7 +460,7 @@ export default function Studio() {
           <div className="panel monitor-panel">
             <div className="panel-head"><div><span className="eyebrow">01 / LIVE MONITOR</span><h2>Footage preview</h2></div><span className={inspecting ? "status-pill busy-pill" : "status-pill"}><i />{videoFile ? planLabel : "AWAITING MEDIA"}</span></div>
             <div className="video-stage">
-              {videoUrl ? <video ref={videoRef} key={videoUrl} src={videoUrl} playsInline controls onLoadedMetadata={updateFromMetadata} onPlay={() => setPreviewPlaying(true)} onPause={() => setPreviewPlaying(false)} onTimeUpdate={() => { if (videoRef.current) setPreviewPlaying(!videoRef.current.paused); }} style={{ filter: filters[settings.preset] }} /> :
+              {videoUrl ? <video ref={videoRef} key={videoUrl} src={videoUrl} playsInline controls onLoadedMetadata={updateFromMetadata} onPlay={handleVideoPlay} onPause={handleVideoPause} onSeeked={handleVideoSeeked} onTimeUpdate={() => { if (videoRef.current) setPreviewPlaying(!videoRef.current.paused); }} onError={() => { setInspecting(false); setPlanLabel("FORMAT ERROR"); setNotice("This browser cannot preview this video format. Try MP4 (H.264) or WebM."); }} style={{ filter: filters[settings.preset] }} /> :
                 <div className="upload-empty"><div className="upload-symbol"><Upload size={28} /></div><h3>Start with your footage</h3><p>Drop a video in. We’ll inspect the frames and prepare your editing workspace.</p><label htmlFor="video-upload" className="button button-primary"><Plus size={16} /> Upload video</label><span className="file-types">MP4 · WEBM · MOV · browser-supported formats</span></div>}
               <input id="video-upload" type="file" accept="video/*" className="hidden-input" onChange={onVideo} />
               {videoUrl && !inspecting && titleVisible && settings.title && <div className="preview-title"><strong>{settings.title}</strong>{settings.subtitle && <span>{settings.subtitle}</span>}</div>}
