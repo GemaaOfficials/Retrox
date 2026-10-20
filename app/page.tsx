@@ -76,6 +76,8 @@ export default function Studio() {
   const musicPreviewRef = useRef<HTMLAudioElement>(null);
   const frameRef = useRef<number | null>(null);
   const cutsRef = useRef<number[]>([]);
+  const videoUrlRef = useRef("");
+  const audioUrlRef = useRef("");
   const settingsRef = useRef<ProjectSettings>(defaults);
   const [settings, setSettings] = useState<ProjectSettings>(defaults);
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -144,11 +146,13 @@ export default function Studio() {
     video.style.filter = filters[settings.preset];
   }, [settings.speed, settings.sourceVolume, settings.preset, videoUrl]);
 
+  useEffect(() => { videoUrlRef.current = videoUrl; }, [videoUrl]);
+  useEffect(() => { audioUrlRef.current = audioUrl; }, [audioUrl]);
   useEffect(() => () => {
     if (frameRef.current) cancelAnimationFrame(frameRef.current);
-    if (videoUrl) URL.revokeObjectURL(videoUrl);
-    if (audioUrl) URL.revokeObjectURL(audioUrl);
-  }, [videoUrl, audioUrl]);
+    if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+  }, []);
 
   const patch = useCallback(<K extends keyof ProjectSettings>(key: K, value: ProjectSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
@@ -254,7 +258,7 @@ export default function Studio() {
       const chunks: BlobPart[] = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
       const completed = new Promise<void>((resolve, reject) => { if (!recorder) return reject(new Error("Recorder could not be created.")); recorder.onstop = () => resolve(); recorder.onerror = () => reject(new Error("Browser recording failed.")); });
-      const ratio = width / height;
+      let lastProgressAt = 0;
       const drawFrame = () => {
         if (stopped) return;
         const time = video.currentTime;
@@ -276,7 +280,11 @@ export default function Studio() {
           if (s.subtitle) { ctx.font = `500 ${subSize}px system-ui, sans-serif`; ctx.fillStyle = "#b5fff6"; ctx.fillText(s.subtitle.slice(0, 120), width / 2, height * .85 + lift); }
           ctx.restore();
         }
-        setProgress({ percent: Math.min(96, Math.round(time / Math.max(1, duration) * 96)), title: "Rendering in real time", detail: audioUrl ? "Compositing video, titles, visual treatment and soundtrack…" : "Compositing video, titles and visual treatment…" });
+        const now = performance.now();
+        if (now - lastProgressAt > 220 || time <= 0.01) {
+          lastProgressAt = now;
+          setProgress({ percent: Math.min(96, Math.round(time / Math.max(1, duration) * 96)), title: "Rendering in real time", detail: audioUrl ? "Compositing video, titles, visual treatment and soundtrack…" : "Compositing video, titles and visual treatment…" });
+        }
         raf = requestAnimationFrame(drawFrame);
       };
       if (audioContext.state === "suspended") await audioContext.resume();
