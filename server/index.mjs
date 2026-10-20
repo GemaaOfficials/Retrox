@@ -170,7 +170,7 @@ async function runJob(job) {
     writeJob(job, { status: "running", percent: 1, message: "Starting FFmpeg render worker." });
     const filters = buildVideoFilters(job.settings, job.directory);
     const args = ["-hide_banner", "-y", "-i", job.videoPath];
-    if (job.audioPath) args.push("-i", job.audioPath);
+    if (job.audioPath) args.push("-stream_loop", "-1", "-i", job.audioPath);
 
     const filterParts = [`[0:v:0]${filters}[vout]`];
     const hasSong = Boolean(job.audioPath);
@@ -178,7 +178,7 @@ async function runJob(job) {
     const outputDuration = job.outputDuration;
     const fadeIn = Math.min(job.settings.fadeIn, outputDuration);
     const fadeOut = Math.min(job.settings.fadeOut, outputDuration);
-    const musicFilters = [`volume=${(job.settings.volume / 100).toFixed(3)}`];
+    const musicFilters = [atempoFilter(job.settings.speed), `volume=${(job.settings.volume / 100).toFixed(3)}`];
     if (fadeIn > 0) musicFilters.push(`afade=t=in:st=0:d=${fadeIn.toFixed(3)}`);
     if (fadeOut > 0 && outputDuration > fadeOut) musicFilters.push(`afade=t=out:st=${(outputDuration - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}`);
 
