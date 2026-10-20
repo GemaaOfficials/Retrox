@@ -9,14 +9,16 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "desktop:dev": "electron .",
-    "desktop:build": "electron-builder --win nsis --x64"
+    "desktop:build": "electron-builder --win nsis",
+    "desktop": "electron ."
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
     "next": "^16.4.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "@fastify/busboy": "^3.2.3"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
@@ -25,50 +27,24 @@
     "eslint": "^9.22.0",
     "eslint-config-next": "^16.4.2",
     "typescript": "^5.8.2",
-    "electron": "44.9.1",
-    "electron-builder": "26.15.3"
+    "electron": "^44.9.1",
+    "electron-builder": "^26.17.0"
   },
   "engines": {
     "node": ">=20.9.0"
   },
-  "main": "desktop/main.cjs",
+  "main": "electron/main.cjs",
   "build": {
-    "appId": "com.gemaaofficials.reeditx",
+    "appId": "com.gemaa.reeditx",
     "productName": "ReEditX",
     "directories": {
-      "output": "release"
+      "output": "dist"
     },
     "files": [
-      "desktop/**/*",
+      "electron/**/*",
       "package.json"
     ],
-    "extraResources": [
-      {
-        "from": ".next/standalone",
-        "to": "app-server",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": ".next/static",
-        "to": "app-server/.next/static",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "public",
-        "to": "app-server/public",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "build-runtime/node.exe",
-        "to": "node.exe"
-      }
-    ],
+    "asar": true,
     "win": {
       "target": [
         {
@@ -78,17 +54,14 @@
           ]
         }
       ],
-      "artifactName": "ReEditX.setup-${version}.${ext}"
+      "artifactName": "ReEditX.setup.exe"
     },
     "nsis": {
       "oneClick": false,
-      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "ReEditX",
-      "runAfterFinish": true,
-      "deleteAppDataOnUninstall": false
+      "shortcutName": "ReEditX"
     }
   }
 }
