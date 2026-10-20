@@ -49,6 +49,11 @@ try {
   assert.equal(health.status, "ok");
   assert.equal(health.maxConcurrent, 1);
 
+  const protectedHealth = await fetch(origin + "/api/health");
+  assert.equal(protectedHealth.status, 401, "detailed worker health must require the render token");
+  const authorizedHealth = await fetch(origin + "/api/health", { headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(authorizedHealth.status, 200, "the shared token should enable the protected health check");
+
   const denied = await fetch(origin + "/api/jobs/00000000-0000-4000-8000-000000000000");
   assert.equal(denied.status, 401, "job status must require the render token");
 
