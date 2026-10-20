@@ -16,7 +16,7 @@ export async function GET() {
       return NextResponse.json({ available: false, releasesUrl, message: "The installer has not been published yet. The Windows build workflow is ready in GitHub Actions." }, { headers: { "Cache-Control": "no-store" } });
     }
     const release = await response.json() as GithubRelease;
-    const asset = release.assets?.find(item => /^ReEditX-Setup(?:-[\w.-]+)?\.exe$/i.test(item.name) || /^ReEditX-Setup.*\.exe$/i.test(item.name));
+    const asset = release.assets?.find(item => /^ReEditX-Setup(?:-[\w.-]+)?\.exe$/i.test(item.name) || /^(ReEditX\.setup|ReEditX-Setup).*\.exe$/i.test(item.name));
     if (!asset || release.draft || release.prerelease) {
       return NextResponse.json({ available: false, version: release.tag_name, releasesUrl, message: "The latest release does not contain a published Windows setup installer yet. Check the Releases page for the first stable build." }, { headers: { "Cache-Control": "no-store" } });
     }
