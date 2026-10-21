@@ -1,0 +1,64 @@
+name: Build ReEditX Android APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: reeditx-android-build
+  cancel-in-progress: false
+jobs:
+  android-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install mobile dependencies
+        run: npm install --prefix mobile
+      - name: Build static ReEditX app
+        run: npm run build:web --prefix mobile
+      - name: Generate Android project
+        shell: bash
+        run: |
+          cd mobile
+          npx cap add android
+          npx cap sync android
+      - name: Build APK
+        shell: bash
+        run: |
+          cd mobile/android
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../ReEditX.apk
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReEditX-Android-APK
+          path: mobile/ReEditX.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish APK to GitHub Releases
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: android-latest
+          name: ReEditX Android
+          target_commitish: ${{ github.sha }}
+          files: mobile/ReEditX.apk
+          generate_release_notes: true
+          make_latest: false
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
