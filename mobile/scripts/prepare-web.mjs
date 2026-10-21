@@ -1,7 +1,8 @@
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-const mobileRoot=path.dirname(fileURLToPath(import.meta.url));
+const scriptDir=path.dirname(fileURLToPath(import.meta.url));
+const mobileRoot=path.resolve(scriptDir,"..");
 const repoRoot=path.resolve(mobileRoot,"..");
 async function copy(source,destination){await mkdir(path.dirname(destination),{recursive:true});await copyFile(source,destination);}
 for(const file of ["layout.tsx","page.tsx","globals.css","download.css"]){await copy(path.join(repoRoot,"app",file),path.join(mobileRoot,"app",file));}
