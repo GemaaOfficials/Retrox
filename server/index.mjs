@@ -113,6 +113,7 @@ function recordForJob(job) {
     output_name: job.outputName || "ReEditX-remix.mp4",
     output_bytes: Number(job.outputBytes) || null,
     error_message: job.error || null,
+    client_token_hash: job.clientTokenHash || undefined,
     created_at: new Date(job.createdAt || Date.now()).toISOString(),
     updated_at: new Date(job.updatedAt || Date.now()).toISOString(),
     expires_at: new Date(job.expiresAt || ((job.createdAt || Date.now()) + JOB_TTL_MS)).toISOString(),
@@ -197,6 +198,7 @@ function jobFromSupabaseRow(row) {
     outputName: row.output_name || "ReEditX-remix.mp4",
     outputBytes: Number(row.output_bytes) || undefined,
     error: row.error_message || null,
+    clientTokenHash: row.client_token_hash || undefined,
     sourceVideoObjectPath: videoObjectPath,
     sourceAudioObjectPath: audioObjectPath,
     outputObjectPath: row.output_object_path || null,
@@ -698,6 +700,12 @@ app.use((error, _req, res, _next) => {
   return res.status(400).json({ error: message.slice(0, 1200), code: "RENDER_REQUEST_FAILED" });
 });
 
+async function persistWorkerHeartbeat() {
+ if(!SUPABASE_CONFIGURED)return;
+ const now=new Date().toISOString();
+ try{await supabaseRequest("/rest/v1/reeditx_worker_heartbeats?on_conflict=id",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({id:WORKER_ID,last_seen_at:now,active_jobs:activeCount,queued_jobs:queue.length,updated_at:now})});}
+ catch(error){console.error("Could not update the ReEditX worker heartbeat:",error instanceof Error?error.message:String(error));}
+}
 const server = app.listen(PORT, HOST, () => {
   console.log(`ReEditX render worker listening on ${HOST}:${PORT}`);
   console.log(`Max concurrent renders: ${MAX_ACTIVE}; upload limit: ${Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB per file`);
@@ -707,7 +715,9 @@ const server = app.listen(PORT, HOST, () => {
 
 const supabasePollTimer = SUPABASE_CONFIGURED ? setInterval(() => { void pollSupabaseQueue(); }, 1500) : null;
 supabasePollTimer?.unref();
-if (SUPABASE_CONFIGURED) void pollSupabaseQueue();
+const heartbeatTimer = SUPABASE_CONFIGURED ? setInterval(() => { void persistWorkerHeartbeat(); }, 15000) : null;
+heartbeatTimer?.unref();
+if (SUPABASE_CONFIGURED) { void pollSupabaseQueue(); void persistWorkerHeartbeat(); }
 
 const cleanup = setInterval(async () => {
   const before = Date.now() - JOB_TTL_MS;
@@ -731,6 +741,7 @@ cleanup.unref();
 function shutdown() {
   clearInterval(cleanup);
   if (supabasePollTimer) clearInterval(supabasePollTimer);
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
   for (const job of jobs.values()) if (job.process && !job.process.killed) job.process.kill("SIGTERM");
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 10_000).unref();

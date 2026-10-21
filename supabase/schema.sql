@@ -19,6 +19,7 @@ create table if not exists public.reeditx_render_jobs (
   output_name text not null default 'ReEditX-remix.mp4',
   output_bytes bigint,
   error_message text,
+  client_token_hash text,
   worker_id text,
   attempts integer not null default 0,
   claimed_at timestamptz,
@@ -48,7 +49,7 @@ values (
   array[
     'video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska',
     'video/x-m4v', 'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav',
-    'audio/mp4', 'audio/aac', 'audio/ogg', 'audio/opus', 'audio/flac',
+    'audio/mp4', 'audio/aac', 'audio/ogg', 'audio/opus', 'audio/flac', 'audio/webm',
     'application/octet-stream'
   ]::text[]
 )
@@ -56,6 +57,16 @@ on conflict (id) do update set
   public = false,
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
+
+create table if not exists public.reeditx_worker_heartbeats (
+ id text primary key, last_seen_at timestamptz not null default now(),
+ active_jobs integer not null default 0 check (active_jobs >= 0), queued_jobs integer not null default 0 check (queued_jobs >= 0),
+ updated_at timestamptz not null default now()
+);
+create index if not exists reeditx_worker_heartbeats_last_seen_idx on public.reeditx_worker_heartbeats(last_seen_at desc);
+alter table public.reeditx_worker_heartbeats enable row level security;
+revoke all on table public.reeditx_worker_heartbeats from anon, authenticated;
+grant all on table public.reeditx_worker_heartbeats to service_role;
 
 -- Claim one queue item atomically, allowing multiple worker instances to share the queue.
 -- A processing job is eligible for retry if its worker stopped refreshing its heartbeat.

@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "desktop:dev": "electron .",
-    "desktop:build": "electron-builder --win nsis",
+    "desktop:build": "electron-builder --win nsis --publish never",
     "desktop": "electron ."
   },
   "dependencies": {
@@ -80,5 +80,7 @@
       "createStartMenuShortcut": true,
       "shortcutName": "ReEditX"
     }
-  }
+  },
+  "description": "ReEditX deterministic video remix studio with Windows and Android builds.",
+  "author": "GemaaOfficials"
 }

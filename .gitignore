@@ -12,3 +12,10 @@ coverage/
 *.tsbuildinfo
 build-runtime/
 release/
+mobile/node_modules/
+mobile/.next/
+mobile/out/
+mobile/android/
+mobile/app/
+mobile/lib/
+mobile/ReEditX.apk

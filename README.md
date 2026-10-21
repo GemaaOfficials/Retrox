@@ -63,28 +63,22 @@ Alternatively, desktop/local browser editing can run from the bundled Next.js ap
 without a hosted service and export WebM through browser media APIs.
 ```
 
-## Supabase backend and render worker
+## Supabase backend and FFmpeg runner
 
-ReEditX uses Supabase Postgres for the durable render queue and job status, and a **private Supabase Storage bucket** for uploaded source media and rendered MP4 files. The worker uses the Supabase service key only on the server; no login is required in the browser, and no service key is shipped to the frontend or desktop installer.
+The ReEditX Supabase project is deployed in ap-south-1. It contains a private reeditx-media bucket, a locked-down reeditx_render_jobs table, an atomic queue-claim function, and a worker-heartbeat table. The reeditx-render-api Edge Function validates uploads, stores media privately, creates durable queue jobs, returns status, and produces signed download URLs. No login is required.
 
-1. Create/select the Supabase project for ReEditX (the connected organization is on the Free plan).
-2. Apply [supabase/schema.sql](supabase/schema.sql) in the Supabase SQL Editor. It creates the private \`reeditx-media\` bucket, a locked-down \`reeditx_render_jobs\` table, indexes, and the atomic queue-claim function.
-3. On the **render worker container** set \`SUPABASE_URL\`, \`SUPABASE_SERVICE_ROLE_KEY\` (or \`SUPABASE_SECRET_KEY\`), \`REEDITX_STORAGE_BUCKET=reeditx-media\`, and \`RENDER_API_TOKEN\`. Keep both secrets out of the repository and browser environment. The worker defaults to a 50 MB limit per file to match Supabase Free Storage.
-4. Deploy the \`server/\` Docker container on a CPU-capable container host that can run FFmpeg. It polls the Supabase queue, claims jobs with row locking, records progress in Postgres, stores sources/results in private Storage, and can restore queued jobs after a restart.
-5. On the **Next.js web service**, set \`REEDITX_RENDER_SERVER_URL\` to the worker's HTTPS URL and \`REEDITX_RENDER_API_TOKEN\` to the same shared token. These are server-side variables, never \`NEXT_PUBLIC_*\` variables. The “Render on server” button enables when the protected health check confirms Supabase is configured.
+Storage is configured for 50 MB per file; combined source uploads are limited to 65 MB. Rendered MP4 outputs must fit the configured private bucket limit.
 
-Supabase provides the database, private storage, and the durable queue here; it does not run a long-lived FFmpeg container. Supabase Edge Functions are not used to encode complete videos because their hosted runtime has a 2-second CPU limit per request and bounded wall-clock duration. See the [current Edge Function limits](https://supabase.com/docs/guides/functions/limits).
+### Enable server rendering
 
-For local-only worker development, install FFmpeg/FFprobe on your machine, set the environment variables above, and run:
+1. Open the GitHub repository's [Actions secrets settings](https://github.com/GemaaOfficials/Retrox/settings/secrets/actions).
+2. Create a repository secret named REEDITX_SUPABASE_SERVICE_ROLE_KEY using the service-role/secret API key from Supabase Dashboard → Project Settings → API Keys. Never paste this key into chat, commit it, or put it in browser code.
+3. Open [ReEditX Supabase Render Worker](https://github.com/GemaaOfficials/Retrox/actions/workflows/supabase-render-worker.yml) and choose Run workflow for the first run. Scheduled runs start every five minutes.
+4. The runner processes queued jobs on GitHub-hosted CPU, while the queue and media references live in Supabase. If the secret is missing, the worker reports a configuration error; browser-local editing continues to work.
 
-\`\`\`bash
-cd server
-npm install
-npm run dev
-\`\`\`
+Supabase Edge Functions do not encode complete videos because their hosted CPU and runtime limits are bounded. FFmpeg runs on the GitHub-hosted runner. Signed output URLs expire after 10 minutes.
 
-The worker listens on port 8787 by default. For local development without Supabase configured, the worker retains its in-memory queue for smoke tests; production jobs require Supabase.
-
+The Edge Function source is at supabase/functions/reeditx-render-api/index.ts. The database bootstrap SQL is at supabase/schema.sql.
 ## Server API
 
 | Method | Path | Purpose |
