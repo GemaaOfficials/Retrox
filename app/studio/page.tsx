@@ -133,7 +133,6 @@ export default function Studio() {
   }, []);
 
   useEffect(() => {
-    let mounted = true;  useEffect(() => {
     let mounted = true;
     loadProject().then(project => {
       if (!mounted) return;
