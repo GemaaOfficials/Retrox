@@ -44,16 +44,6 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Bundle Node.js runtime for offline desktop mode
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path build-runtime | Out-Null
-          $nodePath = (Get-Command node).Source
-          & $nodePath --version
-          if ($LASTEXITCODE -ne 0) { throw "The build Node.js runtime failed its self-check." }
-          Copy-Item $nodePath "build-runtime/node.exe" -Force
-          Write-Host "Bundled runtime: $nodePath"
-
       - name: Build Next.js standalone application
         run: npm run build
 
@@ -65,7 +55,7 @@ jobs:
         run: |
           $appDirectory = (Resolve-Path "release/win-unpacked").Path
           $resourceRoot = Join-Path $appDirectory "resources"
-          $runtime = Join-Path $resourceRoot "node.exe"
+          $runtime = Join-Path $appDirectory "ReEditX.exe"
           $serverDirectory = Join-Path $resourceRoot "app-server"
           $serverEntry = Join-Path $serverDirectory "server.js"
           $buildId = Join-Path $serverDirectory ".next/BUILD_ID"
@@ -83,8 +73,11 @@ jobs:
           $env:PORT = [string]$port
           $env:NODE_ENV = "production"
           $env:REEDITX_DESKTOP = "1"
+          # Exercise the same embedded runtime path used by desktop/main.cjs.
+          $env:ELECTRON_RUN_AS_NODE = "1"
 
           $process = Start-Process -FilePath $runtime -ArgumentList ('"' + $serverEntry + '"') -WorkingDirectory $serverDirectory -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
           $healthy = $false
           try {
             for ($attempt = 0; $attempt -lt 60; $attempt++) {
