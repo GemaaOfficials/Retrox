@@ -9,6 +9,8 @@ let mainWindow = null;
 let nextServer = null;
 let localOrigin = null;
 let quitting = false;
+let serverSpawnError = null;
+const serverOutputTail = [];
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -28,6 +30,35 @@ function logFile() {
 
 function log(message) {
   try { fs.appendFileSync(logFile(), `[${new Date().toISOString()}] ${message}\n`); } catch {}
+}
+
+function logServerLine(streamName, line) {
+  const safeLine = line.length > 2500 ? `${line.slice(0, 2500)}… [truncated]` : line;
+  const entry = `[server ${streamName}] ${safeLine}`;
+  serverOutputTail.push(entry);
+  if (serverOutputTail.length > 60) serverOutputTail.shift();
+  log(entry);
+}
+
+function captureServerOutput(stream, streamName) {
+  if (!stream) return;
+  stream.setEncoding("utf8");
+  let pending = "";
+  stream.on("data", chunk => {
+    const parts = (pending + chunk).split(/\r?\n/);
+    pending = parts.pop() || "";
+    for (const line of parts) {
+      if (line.trim()) logServerLine(streamName, line);
+    }
+  });
+  stream.on("end", () => {
+    if (pending.trim()) logServerLine(streamName, pending);
+  });
+}
+
+function recentServerOutput() {
+  if (serverOutputTail.length === 0) return "";
+  return `\n\nRecent local server output:\n${serverOutputTail.slice(-12).join("\n")}`;
 }
 
 function availablePort(port) {
@@ -50,8 +81,13 @@ async function pickPort() {
 async function waitForServer(url) {
   let lastError = null;
   for (let attempt = 0; attempt < 120; attempt += 1) {
-    if (nextServer && nextServer.exitCode !== null) {
-      throw new Error("The local ReEditX server exited during startup. Check the desktop log.");
+    if (serverSpawnError) {
+      throw new Error(`Windows could not launch the bundled Node.js runtime: ${serverSpawnError.message}${recentServerOutput()}`);
+    }
+    if (nextServer && (nextServer.exitCode !== null || nextServer.signalCode !== null)) {
+      throw new Error(
+        `The local ReEditX server exited during startup (exit code: ${nextServer.exitCode ?? "none"}; signal: ${nextServer.signalCode ?? "none"}).${recentServerOutput()}`,
+      );
     }
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(1800) });
@@ -60,40 +96,64 @@ async function waitForServer(url) {
     } catch (error) { lastError = error; }
     await new Promise(resolve => setTimeout(resolve, 400));
   }
-  throw new Error(`ReEditX could not start in time: ${lastError instanceof Error ? lastError.message : "server timeout"}`);
+  throw new Error(`ReEditX could not start in time: ${lastError instanceof Error ? lastError.message : "server timeout"}${recentServerOutput()}`);
 }
 
 async function startLocalServer() {
   const serverDirectory = path.join(process.resourcesPath, "app-server");
   const serverEntry = path.join(serverDirectory, "server.js");
+  const buildIdFile = path.join(serverDirectory, ".next", "BUILD_ID");
   const nodeRuntime = path.join(process.resourcesPath, "node.exe");
 
-  if (!fs.existsSync(serverEntry)) {
-    throw new Error("The bundled ReEditX app server is missing. Rebuild the installer using the desktop release workflow.");
-  }
-  if (!fs.existsSync(nodeRuntime)) {
-    throw new Error("The bundled Node.js runtime is missing. Rebuild the installer using the desktop release workflow.");
+  serverSpawnError = null;
+  serverOutputTail.length = 0;
+
+  const missingFiles = [
+    [nodeRuntime, "bundled Node.js runtime"],
+    [serverEntry, "bundled Next.js server"],
+    [buildIdFile, "Next.js production build metadata"],
+  ].filter(([filePath]) => !fs.existsSync(filePath));
+
+  if (missingFiles.length > 0) {
+    const missing = missingFiles.map(([filePath, label]) => `${label}: ${filePath}`).join("\n");
+    throw new Error(`The installed ReEditX package is incomplete. Missing required files:\n${missing}\nRe-download the installer and install it again.`);
   }
 
   const port = await pickPort();
   localOrigin = `http://127.0.0.1:${port}`;
   log(`Starting packaged Next.js server at ${localOrigin}`);
+  log(`Bundled Node.js runtime: ${nodeRuntime}`);
+  log(`Bundled server entry: ${serverEntry}`);
+
+  // Keep machine-specific Node settings from breaking the bundled production server.
+  const serverEnv = { ...process.env };
+  for (const name of ["NODE_OPTIONS", "NODE_PATH", "ELECTRON_RUN_AS_NODE"]) delete serverEnv[name];
+  Object.assign(serverEnv, {
+    NODE_ENV: "production",
+    HOSTNAME: "127.0.0.1",
+    PORT: String(port),
+    // Deliberately do not embed or forward any render-server secret to this desktop process.
+    REEDITX_DESKTOP: "1",
+  });
+
   nextServer = spawn(nodeRuntime, [serverEntry], {
     cwd: serverDirectory,
     windowsHide: true,
-    stdio: "ignore",
-    env: {
-      ...process.env,
-      NODE_ENV: "production",
-      HOSTNAME: "127.0.0.1",
-      PORT: String(port),
-      // Deliberately do not embed or forward any render-server secret to this desktop process.
-      REEDITX_DESKTOP: "1",
-    },
+    stdio: ["ignore", "pipe", "pipe"],
+    env: serverEnv,
   });
-  nextServer.on("error", error => log(`Server process error: ${error.message}`));
-  nextServer.on("exit", (code, signal) => log(`Local server exited: code=${code}; signal=${signal}`));
+  captureServerOutput(nextServer.stdout, "stdout");
+  captureServerOutput(nextServer.stderr, "stderr");
+  nextServer.on("error", error => {
+    serverSpawnError = error;
+    log(`Server process error: ${error.stack || error.message}`);
+  });
+  nextServer.on("exit", (code, signal) => {
+    log(`Local server exited: code=${code}; signal=${signal || "none"}${recentServerOutput()}`);
+  });
+
   await waitForServer(`${localOrigin}/api/health`);
+  log("Local ReEditX server passed the health check.");
   return localOrigin;
 }
 
@@ -143,7 +203,7 @@ function createWindow(origin) {
   mainWindow.once("ready-to-show", () => mainWindow && mainWindow.show());
   mainWindow.on("closed", () => { mainWindow = null; });
   mainWindow.loadURL(new URL("/studio", origin).toString()).catch(async error => {
-    log(`Failed to load ReEditX: ${error.message}`);
+    log(`Failed to load ReEditX: ${error.stack || error.message}`);
     if (!quitting) {
       await dialog.showMessageBox({ type: "error", title: "ReEditX could not open", message: "The ReEditX workspace could not be loaded.", detail: error.message });
       app.quit();
@@ -157,7 +217,7 @@ async function launch() {
     createWindow(origin);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    log(`Startup failure: ${detail}`);
+    log(`Startup failure: ${error instanceof Error ? error.stack || error.message : detail}`);
     await dialog.showMessageBox({
       type: "error",
       title: "ReEditX could not start",
