@@ -33,13 +33,11 @@ if (!(await exists(path.join(standaloneNext, "package.json")))) {
   console.log("Standalone runtime already contains Next.js; no repair needed.");
 }
 
-if (!(await exists(path.join(installedSwcHelpers, "package.json")))) {
-  throw new Error(`Installed @swc/helpers package is missing: ${installedSwcHelpers}`);
+if (!(await exists(path.join(installedSwcHelpers, "_", "_interop_require_default.js")))) {
+  throw new Error(`Installed @swc/helpers runtime entry is missing: ${installedSwcHelpers}`);
 }
-if (!(await exists(path.join(standaloneSwcHelpers, "package.json")))) {
-  await mkdir(path.dirname(standaloneSwcHelpers), { recursive: true });
-  await cp(installedSwcHelpers, standaloneSwcHelpers, { recursive: true, force: true });
-  console.log("Repaired standalone runtime: copied @swc/helpers for Next.js server startup.");
-} else {
-  console.log("Standalone runtime already contains @swc/helpers; no repair needed.");
-}
+// Standalone tracing can leave an incomplete helper directory (package.json present,
+// runtime helper files absent). Overlay the complete installed package every time.
+await mkdir(path.dirname(standaloneSwcHelpers), { recursive: true });
+await cp(installedSwcHelpers, standaloneSwcHelpers, { recursive: true, force: true });
+console.log("Ensured the complete @swc/helpers package is present in the standalone server bundle.");
