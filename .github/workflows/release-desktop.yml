@@ -5,6 +5,8 @@ on:
     branches: [main]
     tags:
       - "v*"
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       release_tag:
@@ -47,6 +49,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path build-runtime | Out-Null
           $nodePath = (Get-Command node).Source
+          & $nodePath --version
+          if ($LASTEXITCODE -ne 0) { throw "The build Node.js runtime failed its self-check." }
           Copy-Item $nodePath "build-runtime/node.exe" -Force
           Write-Host "Bundled runtime: $nodePath"
 
@@ -56,11 +60,70 @@ jobs:
       - name: Build ReEditX.setup.exe
         run: npm run desktop:build
 
+      - name: Smoke-test packaged local server
+        shell: pwsh
+        run: |
+          $appDirectory = (Resolve-Path "release/win-unpacked").Path
+          $resourceRoot = Join-Path $appDirectory "resources"
+          $runtime = Join-Path $resourceRoot "node.exe"
+          $serverDirectory = Join-Path $resourceRoot "app-server"
+          $serverEntry = Join-Path $serverDirectory "server.js"
+          $buildId = Join-Path $serverDirectory ".next/BUILD_ID"
+          foreach ($file in @($runtime, $serverEntry, $buildId)) {
+            if (!(Test-Path $file -PathType Leaf)) { throw "Packaged runtime file is missing: $file" }
+          }
+
+          $portProbe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+          $portProbe.Start()
+          $port = $portProbe.LocalEndpoint.Port
+          $portProbe.Stop()
+          $stdout = Join-Path $env:RUNNER_TEMP "reeditx-server.stdout.log"
+          $stderr = Join-Path $env:RUNNER_TEMP "reeditx-server.stderr.log"
+          $env:HOSTNAME = "127.0.0.1"
+          $env:PORT = [string]$port
+          $env:NODE_ENV = "production"
+          $env:REEDITX_DESKTOP = "1"
+
+          $process = Start-Process -FilePath $runtime -ArgumentList ('"' + $serverEntry + '"') -WorkingDirectory $serverDirectory -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          $healthy = $false
+          try {
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              $process.Refresh()
+              if ($process.HasExited) {
+                $outText = if (Test-Path $stdout) { Get-Content $stdout -Raw } else { "" }
+                $errText = if (Test-Path $stderr) { Get-Content $stderr -Raw } else { "" }
+                throw ("Packaged server exited (code " + $process.ExitCode + ")." + [Environment]::NewLine + "STDOUT:" + [Environment]::NewLine + $outText + [Environment]::NewLine + "STDERR:" + [Environment]::NewLine + $errText)
+              }
+              try {
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/health" -TimeoutSec 2 -UseBasicParsing
+                if ($response.StatusCode -eq 200) {
+                  $health = $response.Content | ConvertFrom-Json
+                  if ($health.status -eq "ok") {
+                    Write-Host "Packaged local server passed /api/health smoke test."
+                    $healthy = $true
+                    break
+                  }
+                }
+              } catch {}
+              Start-Sleep -Milliseconds 500
+            }
+            if (!$healthy) {
+              $process.Refresh()
+              $outText = if (Test-Path $stdout) { Get-Content $stdout -Raw } else { "" }
+              $errText = if (Test-Path $stderr) { Get-Content $stderr -Raw } else { "" }
+              throw ("Packaged server did not become healthy." + [Environment]::NewLine + "STDOUT:" + [Environment]::NewLine + $outText + [Environment]::NewLine + "STDERR:" + [Environment]::NewLine + $errText)
+            }
+          } finally {
+            $process.Refresh()
+            if (!$process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+          }
+
       - name: List installer artifacts
         shell: pwsh
         run: Get-ChildItem release -Filter "*.exe" | Format-Table Name, Length
 
       - name: Publish installer to GitHub Releases
+        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'latest') || inputs.release_tag || github.ref_name }}
