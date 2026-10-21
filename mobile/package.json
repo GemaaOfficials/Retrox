@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "prepare:web": "node scripts/prepare-web.mjs",
-    "build:web": "npm run prepare:web && next build"
+    "build:web": "npm run prepare:web && next build --webpack"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",
