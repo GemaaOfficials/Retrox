@@ -4,13 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build --webpack && node scripts/ensure-standalone-next.mjs",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "desktop:dev": "electron .",
-    "desktop:build": "electron-builder --win nsis --publish never",
-    "desktop": "electron .",
     "prebuild": "node scripts/prepare-retrox-engine.mjs"
   },
   "dependencies": {
@@ -20,8 +17,7 @@
     "react-dom": "^19.3.1",
     "zod": "^3.24.2",
     "@ffmpeg/core": "0.12.10",
-    "@ffmpeg/ffmpeg": "0.12.15",
-    "@swc/helpers": "0.5.23"
+    "@ffmpeg/ffmpeg": "0.12.15"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
@@ -29,65 +25,11 @@
     "@types/react-dom": "^19.2.0",
     "eslint": "^9.22.0",
     "eslint-config-next": "^16.4.2",
-    "typescript": "^5.8.2",
-    "electron": "^44.9.1",
-    "electron-builder": "^26.17.0"
+    "typescript": "^5.8.2"
   },
   "engines": {
     "node": ">=20.9.0"
   },
-  "main": "desktop/main.cjs",
-  "build": {
-    "appId": "com.gemaa.reeditx",
-    "productName": "ReEditX",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "desktop/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": ".next/standalone",
-        "to": "app-server"
-      },
-      {
-        "from": ".next/static",
-        "to": "app-server/.next/static"
-      },
-      {
-        "from": "public",
-        "to": "app-server/public"
-      },
-      {
-        "from": "node_modules/next",
-        "to": "app-server/node_modules/next"
-      }
-    ],
-    "asar": true,
-    "electronFuses": {
-      "runAsNode": true
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "artifactName": "ReEditX.setup-${version}.exe"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "ReEditX"
-    }
-  },
-  "description": "ReEditX deterministic video remix studio with Windows and Android builds.",
+  "description": "ReEditX mobile video remix editor for Android.",
   "author": "GemaaOfficials"
 }
