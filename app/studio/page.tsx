@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { clearProject, loadProject, saveProject, type Aspect, type FilterPreset, type ProjectSettings, type Rhythm } from "@/lib/project-db";
 import { buildEditPlan } from "@/lib/edit-plan";
+import { renderRetrox } from "@/lib/retrox-engine";
+import { LOCAL_RETROX_PROFILES, loadRetroxProfiles, type RetroxStyleProfile } from "@/lib/retrox-recipes";
 
 type Scene = { id: number; start: number; end: number; duration: number; label: string };
 type Progress = { percent: number; title: string; detail: string };
@@ -22,11 +24,15 @@ const filters: Record<FilterPreset, string> = {
   none: "none", cinema: "contrast(1.12) saturate(1.16) brightness(.92)",
   mono: "grayscale(1) contrast(1.12)", dream: "saturate(1.28) brightness(1.07)",
   neon: "saturate(1.6) contrast(1.12)",
+  "cultural-aura": "sepia(.2) saturate(1.24) contrast(1.1)",
+  lofi: "sepia(.18) saturate(.76) contrast(.91) brightness(1.035)",
+  vhs: "saturate(1.18) contrast(1.07) hue-rotate(-4deg)",
 };
 const presetInfo: { id: FilterPreset; label: string; note: string }[] = [
   { id: "cinema", label: "Cinema", note: "Film contrast" }, { id: "neon", label: "Neon", note: "Colour punch" },
-  { id: "dream", label: "Dream", note: "Soft glow" }, { id: "mono", label: "Mono", note: "Black & white" },
-  { id: "none", label: "Original", note: "No filter" },
+  { id: "cultural-aura", label: "Cultural Aura", note: "Golden cinematic mood" }, { id: "lofi", label: "Lo-fi", note: "Faded film grain" },
+  { id: "vhs", label: "Retro VHS", note: "Vintage tape look" }, { id: "dream", label: "Dream", note: "Soft glow" },
+  { id: "mono", label: "Mono", note: "Black & white" }, { id: "none", label: "Original", note: "No filter" },
 ];
 const fmt = (n: number) => {
   const safe = Number.isFinite(n) && n > 0 ? n : 0;
@@ -107,12 +113,24 @@ export default function Studio() {
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState<Progress>({ percent: 0, title: "", detail: "" });
   const [activePanel, setActivePanel] = useState<"look" | "sound" | "text">("look");
+  const [retroxProfiles, setRetroxProfiles] = useState<Record<FilterPreset, RetroxStyleProfile>>(LOCAL_RETROX_PROFILES);
+  const [profileSource, setProfileSource] = useState<"syncing" | "supabase" | "local">("syncing");
   const [planLabel, setPlanLabel] = useState("READY TO CREATE");
   const [showScenes, setShowScenes] = useState(true);
   const [titleVisible, setTitleVisible] = useState(true);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { cutsRef.current = sceneCuts; }, [sceneCuts]);
+
+  useEffect(() => {
+    let active = true;
+    void loadRetroxProfiles().then(result => {
+      if (!active) return;
+      setRetroxProfiles(result.profiles);
+      setProfileSource(result.source);
+    }).catch(() => { if (active) setProfileSource("local"); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (duration <= 0) return;
@@ -290,6 +308,51 @@ export default function Studio() {
   };
 
   const exportRemix = async () => {
+    if (!videoFile || inspecting || exporting) return;
+    const video = videoRef.current;
+    exportingRef.current = true;
+    setExporting(true);
+    setNotice("");
+    setPlanLabel("RETROX ENGINE STARTING");
+    setProgress({ percent: 2, title: "Starting Retrox", detail: "Loading the bundled FFmpeg/WebAssembly engine on this device…" });
+    try {
+      const result = await renderRetrox({
+        videoFile,
+        audioFile,
+        settings,
+        duration: duration || video?.duration || 30,
+        sourceWidth: video?.videoWidth || 1280,
+        sourceHeight: video?.videoHeight || 720,
+        sceneCuts: [...sceneCuts],
+        profile: retroxProfiles[settings.preset] ?? LOCAL_RETROX_PROFILES[settings.preset],
+        onProgress: (percent, detail) => {
+          setProgress({ percent, title: percent < 8 ? "Loading Retrox Engine" : "Retrox · rendering video", detail });
+        },
+      });
+      const url = URL.createObjectURL(result.blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = result.fileName;
+      anchor.rel = "noopener";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      setProgress({ percent: 100, title: "MP4 export complete", detail: "Retrox finished the video locally. Your MP4 download has started." });
+      setNotice("Retrox exported your MP4 locally. Your video and song were not uploaded.");
+      setPlanLabel("RETROX EXPORT COMPLETE");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Retrox could not export this video.";
+      setProgress({ percent: 0, title: "Retrox export couldn't finish", detail: message });
+      setNotice(message);
+      setPlanLabel("RETROX ENGINE ERROR");
+    } finally {
+      exportingRef.current = false;
+      setExporting(false);
+    }
+  };
+
+  const exportWebM = async () => {
     const video = videoRef.current;
     if (!video || !videoFile || exporting) return;
     if (!("MediaRecorder" in window) || !("captureStream" in HTMLCanvasElement.prototype)) { setNotice("Your browser lacks canvas recording support. Try a recent Chrome or Edge browser that supports local media recording."); return; }
@@ -504,7 +567,7 @@ export default function Studio() {
             <div className="panel-head"><div><span className="eyebrow">03 / CREATIVE CONTROLS</span><h2>Remix console</h2></div><SlidersHorizontal size={17} className="head-icon" /></div>
             <div className="inspector-tabs"><button className={activePanel==="look"?"tab active-tab": "tab"} onClick={()=>setActivePanel("look")}><Sparkles size={14} /> Look</button><button className={activePanel==="sound"?"tab active-tab":"tab"} onClick={()=>setActivePanel("sound")}><Music2 size={14}/> Sound</button><button className={activePanel==="text"?"tab active-tab":"tab"} onClick={()=>setActivePanel("text")}><WandSparkles size={14}/> Text</button></div>
             {activePanel==="look" && <div className="inspector-body">
-              <div className="control-section"><div className="section-title"><span>Visual treatment</span><span className="section-index">01</span></div><div className="preset-grid">{presetInfo.map(p=><button key={p.id} className={settings.preset===p.id?"preset-card selected":"preset-card"} onClick={()=>patch("preset",p.id)}><span className={`preset-swatch swatch-${p.id}`}><span /></span><strong>{p.label}</strong><small>{p.note}</small>{settings.preset===p.id&&<Check size={13} className="preset-check" />}</button>)}</div></div>
+              <div className="control-section"><div className="section-title"><span>Visual treatment</span><span className="section-index">01</span></div><div className="preset-grid">{presetInfo.map(p=><button key={p.id} className={settings.preset===p.id?"preset-card selected":"preset-card"} onClick={()=>patch("preset",p.id)}><span className={`preset-swatch swatch-${p.id}`}><span /></span><strong>{retroxProfiles[p.id]?.name ?? p.label}</strong><small>{retroxProfiles[p.id]?.description ?? p.note}</small>{settings.preset===p.id&&<Check size={13} className="preset-check" />}</button>)}</div></div>
               <div className="control-section"><div className="section-title"><span>Edit rhythm</span><span className="section-index">02</span></div><div className="rhythm-options">{([{id:"steady",label:"Steady",desc:"Natural pace"},{id:"punchy",label:"Punchy",desc:"Quick energy"},{id:"slow",label:"Slow motion",desc:"Half speed"}] as {id:Rhythm;label:string;desc:string}[]).map(r=><button key={r.id} className={settings.rhythm===r.id?"rhythm-option chosen":"rhythm-option"} onClick={()=>patch("rhythm",r.id)}><span>{r.label}</span><small>{r.desc}</small></button>)}</div></div>
               <div className="control-section"><div className="range-label"><label htmlFor="speed">Playback speed</label><strong>{(settings.speed/100).toFixed(2).replace(/0$/,"")}×</strong></div><input id="speed" className="range" type="range" min="25" max="200" step="5" value={settings.speed} onChange={e=>patch("speed",Number(e.target.value))}/><div className="range-ends"><span>0.25×</span><span>2.0×</span></div></div>
               <div className="control-section"><label className="field-label" htmlFor="aspect">Export frame</label><div className="select-wrap"><select id="aspect" value={settings.aspect} onChange={e=>patch("aspect",e.target.value as Aspect)}><option value="original">Original dimensions</option><option value="landscape">Landscape · 16:9</option><option value="portrait">Portrait · 9:16</option><option value="square">Square · 1:1</option></select><ChevronDown size={15}/></div></div>
@@ -522,10 +585,23 @@ export default function Studio() {
             {activePanel==="text" && <div className="inspector-body">
               <div className="control-section"><div className="section-title"><span>Animated title card</span><span className="section-index">01</span></div><label className="field-label" htmlFor="title">Main title</label><input id="title" className="text-input" value={settings.title} maxLength={90} placeholder="e.g. THE MOMENT" onChange={e=>patch("title",e.target.value)}/><label className="field-label second-label" htmlFor="subtitle">Sub-title</label><input id="subtitle" className="text-input" value={settings.subtitle} maxLength={120} placeholder="Add a little context…" onChange={e=>patch("subtitle",e.target.value)}/><label className="switch-row switch-text"><span><b>Animated entrance</b><small>Fade + slide into frame</small></span><input type="checkbox" checked={settings.animatedTitles} onChange={e=>patch("animatedTitles",e.target.checked)}/><i /></label><label className="switch-row switch-text"><span><b>Show preview title</b><small>Show text over the monitor</small></span><input type="checkbox" checked={titleVisible} onChange={e=>setTitleVisible(e.target.checked)}/><i /></label></div><div className="title-preview"><span className="eyebrow">TITLE PREVIEW</span><strong>{settings.title || "YOUR TITLE HERE"}</strong><small>{settings.subtitle || "YOUR SUBTITLE HERE"}</small></div><p className="hint-box"><WandSparkles size={14}/> Text is drawn into the exported frames with a timed fade-and-slide animation.</p>
             </div>}
-            <div className="panel-bottom"><div className="engine-line"><span className="engine-dot"/><span>REEDITX RULES ENGINE</span><small>NO AI</small></div><div className="api-line"><span>PROCESSING</span><b className="good">ON DEVICE</b></div></div>
+            <div className="panel-bottom"><div className="engine-line"><span className="engine-dot"/><span>RETROX MEDIA ENGINE</span><small>{profileSource==="supabase"?"STYLE DB SYNCED":profileSource==="syncing"?"SYNCING STYLES":"LOCAL RECIPES"}</small></div><div className="api-line"><span>PROCESSING</span><b className="good">ON DEVICE</b></div></div>
           </div>
 
-          <div className="panel export-card"><div className="export-card-top"><span className="eyebrow">FINAL OUTPUT</span><span className="export-type">LOCAL WEBM</span></div><h3>Bring the cut to life.</h3><p>Your video and soundtrack are rendered on this device. Nothing is uploaded for processing.</p><button className="button button-primary export-button" onClick={exportRemix} disabled={!videoFile || inspecting || exporting}><span>{exporting?<LoaderCircle size={16} className="spin"/>:<Download size={16}/>}</span>{exporting?"Rendering…":"Export locally"}{!exporting&&<span className="export-arrow">↗</span>}</button>{!videoFile&&<small className="export-hint">Upload a video to unlock exports.</small>}{videoFile&&inspecting&&<small className="export-hint">Waiting for frame inspection to finish.</small>}<div className="export-note"><ShieldCheck size={13}/> No account or render-server setup required. Output format: WebM.</div></div>
+          <div className="panel export-card">
+            <div className="export-card-top"><span className="eyebrow">FINAL OUTPUT</span><span className="export-type">MP4 · RETROX</span></div>
+            <h3>Render with Retrox.</h3>
+            <p>The bundled FFmpeg engine applies your style recipe, frame sizing, speed, title overlays and soundtrack mix directly on this device.</p>
+            <button className="button button-primary export-button" onClick={exportRemix} disabled={!videoFile || inspecting || exporting}>
+              <span>{exporting?<LoaderCircle size={16} className="spin"/>:<Download size={16}/>}</span>{exporting?"Rendering locally…":"Export MP4 · Retrox"}{!exporting&&<span className="export-arrow">↗</span>}
+            </button>
+            <button className="button button-server export-button" onClick={exportWebM} disabled={!videoFile || inspecting || exporting}>
+              <span>{exporting?<LoaderCircle size={16} className="spin"/>:<Download size={16}/>}</span>{exporting?"Export in progress":"Quick WebM fallback"}
+            </button>
+            {!videoFile&&<small className="export-hint">Upload a video to unlock exports.</small>}
+            {videoFile&&inspecting&&<small className="export-hint">Waiting for frame inspection to finish.</small>}
+            <div className="export-note"><ShieldCheck size={13}/> Supabase supplies published Retrox style recipes only. Video and audio stay on your device.</div>
+          </div>
         </aside>
       </div>
       {notice && <div className="toast" role="status"><span>{notice}</span><button aria-label="Dismiss message" onClick={()=>setNotice("")}><X size={13}/></button></div>}

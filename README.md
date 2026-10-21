@@ -16,17 +16,18 @@ The Windows installer bundles a Node.js runtime and the local Next.js app. When 
 - Inspect the video locally and detect possible scene changes with a deterministic frame-difference heuristic.
 - Edit rhythm, speed, aspect ratio, colour preset, audio levels and soundtrack fades.
 - Add animated title and subtitle overlays.
-- Preview the work and export a WebM file locally through the browser's media recording APIs.
+- Preview the work and export MP4 locally through the bundled Retrox FFmpeg/WebAssembly engine, with a lightweight WebM fallback.
+- Choose Cultural Aura, Lo-fi, Retro VHS, Cinema, Neon, Dream, Mono and Original style recipes; published recipe tuning syncs from Supabase, with local defaults when offline.
 - Save project settings and source media in local IndexedDB storage without an account.
 
 ## Privacy and limitations
 
 - ReEditX does not upload your selected media for rendering. The export button records the output locally on your device.
 - Local export happens in real time and depends on the media codecs and recording APIs available in the operating system's browser/WebView.
-- The current local export format is **WebM**, not MP4.
+- The Retrox engine exports MP4 locally; the lightweight fallback exports WebM. Browser/WASM processing can be slower and use substantial RAM on longer or high-resolution clips.
 - Scene detection is a lightweight frame-difference heuristic, not an AI or professional vision model.
 - Project media is stored in the app/browser profile. Clearing that app's data can remove locally saved projects.
-- The web version requires a connection to load its pages; installed builds bundle the editor locally. Media processing stays on-device in either case.
+- The installed builds bundle the editor and FFmpeg/WASM core locally. Supabase is queried only for the published style catalogue; source media and rendered output are never uploaded by Retrox.
 
 ## Development
 

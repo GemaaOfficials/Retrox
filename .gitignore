@@ -19,3 +19,7 @@ mobile/android/
 mobile/app/
 mobile/lib/
 mobile/ReEditX.apk
+
+# Bundled locally at build time; do not commit generated FFmpeg/WASM assets.
+public/retrox/
+mobile/public/retrox/

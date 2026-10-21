@@ -1,4 +1,4 @@
-export type FilterPreset = "none" | "cinema" | "mono" | "dream" | "neon";
+export type FilterPreset = "none" | "cinema" | "mono" | "dream" | "neon" | "cultural-aura" | "lofi" | "vhs";
 export type Rhythm = "steady" | "punchy" | "slow";
 export type Aspect = "original" | "portrait" | "square" | "landscape";
 
