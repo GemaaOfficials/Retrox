@@ -132,6 +132,7 @@ async function startLocalServer() {
     NODE_ENV: "production",
     HOSTNAME: "127.0.0.1",
     PORT: String(port),
+    NODE_PATH: path.join(serverDirectory, "node_modules"),
     // Deliberately do not embed or forward any render-server secret to this desktop process.
     ELECTRON_RUN_AS_NODE: "1",
     REEDITX_DESKTOP: "1",
