@@ -1,53 +1,35 @@
-# ReEditX — Local Video Remix Studio
+# ReEditX — Mobile Video Remix Studio
 
 **Made by Gemaa.**
 
-ReEditX is a local-first, deterministic video remix editor for Windows, Android, and the browser. Editing and export use on-device browser media APIs; there is no login, AI model, hosted rendering service, or backend secret to configure.
+ReEditX is a mobile-first video remix editor. The supported app download is the **Android APK**; the Windows desktop build has been discontinued while the mobile version is the focus.
 
-## Downloads
+## Download for Android
 
-- **Windows:** [Get the latest ReEditX installer](https://github.com/GemaaOfficials/Retrox/releases/download/latest/ReEditX.setup-1.0.0.exe)
-- **Android:** [Get the latest ReEditX APK](https://github.com/GemaaOfficials/Retrox/releases/download/android-latest/ReEditX.apk)
-- **All releases:** [GitHub Releases](https://github.com/GemaaOfficials/Retrox/releases)
+**[Download the latest ReEditX APK](https://github.com/GemaaOfficials/Retrox/releases/download/android-latest/ReEditX.apk)**
 
-The Windows installer uses Electron's embedded Node.js runtime to launch the local Next.js app, so it does not need a separate system Node.js installation. When launched, Electron starts the local server bound to 127.0.0.1 and opens the editing workspace from that local server. The Android APK bundles a static version of the app with Capacitor. Neither installed app needs a ReEditX server to edit or export media.
+If the download does not begin, open the [ReEditX Android release page](https://github.com/GemaaOfficials/Retrox/releases/tag/android-latest) and select `ReEditX.apk`. After downloading, open the APK on your Android phone and follow Android's installation prompts. Android may ask you to allow installation from the browser or file manager you used to download it.
 
 ## Features
 
-- Import a video and optional soundtrack from your device.
-- Inspect the video locally and detect possible scene changes with a deterministic frame-difference heuristic.
-- Edit rhythm, speed, aspect ratio, colour preset, audio levels and soundtrack fades.
+- Import a video and optional soundtrack from your phone.
+- Detect possible scene changes with a deterministic frame-difference heuristic.
+- Edit rhythm, speed, aspect ratio, colour preset, audio levels, and soundtrack fades.
 - Add animated title and subtitle overlays.
-- Preview the work and export MP4 locally through the bundled Retrox FFmpeg/WebAssembly engine, with a lightweight WebM fallback.
-- Choose Cultural Aura, Lo-fi, Retro VHS, Cinema, Neon, Dream, Mono and Original style recipes; published recipe tuning syncs from Supabase, with local defaults when offline.
-- Save project settings and source media in local IndexedDB storage without an account.
+- Preview and export video locally through the bundled Retrox FFmpeg/WebAssembly engine, with a lightweight WebM fallback.
+- Choose Cultural Aura, Lo-fi, Retro VHS, Cinema, Neon, Dream, Mono, and Original style recipes.
+- Save project settings and source media on the device without an account.
 
 ## Privacy and limitations
 
-- ReEditX does not upload your selected media for rendering. The export button records the output locally on your device.
-- Local export happens in real time and depends on the media codecs and recording APIs available in the operating system's browser/WebView.
-- The Retrox engine exports MP4 locally; the lightweight fallback exports WebM. Browser/WASM processing can be slower and use substantial RAM on longer or high-resolution clips.
-- Scene detection is a lightweight frame-difference heuristic, not an AI or professional vision model.
-- Project media is stored in the app/browser profile. Clearing that app's data can remove locally saved projects.
-- The installed builds bundle the editor and FFmpeg/WASM core locally. Supabase is queried only for the published style catalogue; source media and rendered output are never uploaded by Retrox.
+- ReEditX processes selected media locally on your device; it does not upload source video or rendered output for processing.
+- Export performance depends on your phone's available memory, media codecs, and WebView capabilities. Longer or high-resolution clips may take time and use substantial memory.
+- The Retrox engine exports MP4 locally; the lightweight fallback exports WebM.
+- Projects live in the app's local storage. Clearing the app's data can remove saved projects.
+- The app does not require a login or a cloud-render service.
 
 ## Development
 
-Requirements: Node.js 22 or newer (Node 24 is recommended) and npm.
+The Android app lives in `mobile/` and is built using Capacitor. The GitHub Actions workflow named `Build ReEditX Android APK` builds and publishes the APK to the `android-latest` release.
 
-```bash
-npm install
-npm run dev
-```
-
-Visit http://localhost:3000 for the download portal and http://localhost:3000/studio for the editor.
-
-Run checks:
-
-```bash
-npm run typecheck
-npm run lint
-npm run build
-```
-
-Windows installer packaging is performed by the `Build ReEditX.setup for Windows` GitHub Actions workflow. The Android package is built by `Build ReEditX Android APK`. Every build is self-contained for local editing and does not require configuring cloud services.
+**ReEditX is currently distributed for Android mobile only.**
