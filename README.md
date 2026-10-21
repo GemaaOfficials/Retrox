@@ -10,7 +10,7 @@ ReEditX is a local-first, deterministic video remix editor for Windows, Android,
 - **Android:** [Get the latest ReEditX APK](https://github.com/GemaaOfficials/Retrox/releases/download/android-latest/ReEditX.apk)
 - **All releases:** [GitHub Releases](https://github.com/GemaaOfficials/Retrox/releases)
 
-The Windows installer bundles a Node.js runtime and the local Next.js app. When launched, Electron starts the local server bound to 127.0.0.1 and opens the editing workspace from that local server. The Android APK bundles a static version of the app with Capacitor. Neither installed app needs a ReEditX server to edit or export media.
+The Windows installer uses Electron's embedded Node.js runtime to launch the local Next.js app, so it does not need a separate system Node.js installation. When launched, Electron starts the local server bound to 127.0.0.1 and opens the editing workspace from that local server. The Android APK bundles a static version of the app with Capacitor. Neither installed app needs a ReEditX server to edit or export media.
 
 ## Features
 
