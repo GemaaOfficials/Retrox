@@ -58,7 +58,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           files: mobile/ReEditX.apk
           generate_release_notes: true
-          make_latest: false
+          make_latest: true
           overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
