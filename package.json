@@ -48,10 +48,6 @@
     ],
     "extraResources": [
       {
-        "from": "build-runtime/node.exe",
-        "to": "node.exe"
-      },
-      {
         "from": ".next/standalone",
         "to": "app-server"
       },
@@ -65,6 +61,9 @@
       }
     ],
     "asar": true,
+    "electronFuses": {
+      "runAsNode": true
+    },
     "win": {
       "target": [
         {
