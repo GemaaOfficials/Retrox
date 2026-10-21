@@ -4,6 +4,8 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -13,7 +15,7 @@ import { z } from "zod";
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || "0.0.0.0";
-const MAX_FILE_BYTES = Math.max(1, Number(process.env.MAX_UPLOAD_MB || 1024)) * 1024 * 1024;
+const MAX_FILE_BYTES = Math.max(1, Number(process.env.MAX_UPLOAD_MB || 50)) * 1024 * 1024;
 const MAX_DURATION = Math.min(8 * 60 * 60, Math.max(60, Number(process.env.MAX_MEDIA_SECONDS || 4 * 60 * 60)));
 const MAX_ACTIVE = Math.min(4, Math.max(1, Number(process.env.MAX_CONCURRENT_RENDERS || 1)));
 const MAX_QUEUE = Math.max(1, Number(process.env.MAX_QUEUED_RENDERS || 4));
@@ -24,9 +26,272 @@ const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 const FFPROBE = process.env.FFPROBE_PATH || "ffprobe";
 const TOKEN = process.env.RENDER_API_TOKEN || "";
 const production = process.env.NODE_ENV === "production";
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/+$/, "");
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || "";
+const SUPABASE_BUCKET = process.env.REEDITX_STORAGE_BUCKET || "reeditx-media";
+const SUPABASE_CONFIGURED = Boolean(SUPABASE_URL && SUPABASE_SERVICE_KEY);
+const WORKER_ID = process.env.RENDER_WORKER_ID || crypto.randomUUID();
+let supabasePolling = false;
+
 
 await fsp.mkdir(ROOT, { recursive: true });
 await fsp.mkdir(UPLOADS, { recursive: true });
+
+function supabaseHeaders(extra = {}) {
+  return { apikey: SUPABASE_SERVICE_KEY, Authorization: "Bearer " + SUPABASE_SERVICE_KEY, ...extra };
+}
+
+async function supabaseRequest(pathname, options = {}) {
+  if (!SUPABASE_CONFIGURED) throw new Error("Supabase is not configured on the render worker.");
+  const headers = supabaseHeaders(options.headers || {});
+  if (typeof options.body === "string" && !headers["Content-Type"] && !headers["content-type"]) headers["Content-Type"] = "application/json";
+  const response = await fetch(SUPABASE_URL + pathname, { ...options, headers });
+  const text = await response.text();
+  if (!response.ok) throw new Error("Supabase request failed (" + response.status + "): " + text.slice(0, 500));
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+function encodeObjectPath(objectPath) {
+  return objectPath.split("/").map(encodeURIComponent).join("/");
+}
+
+function supabaseObjectUrl(objectPath, access = "") {
+  return SUPABASE_URL + "/storage/v1/object/" + (access ? access + "/" : "") +
+    encodeURIComponent(SUPABASE_BUCKET) + "/" + encodeObjectPath(objectPath);
+}
+
+async function uploadToSupabaseStorage(localPath, objectPath, contentType) {
+  if (!SUPABASE_CONFIGURED || !objectPath) return;
+  const fileInfo = await fsp.stat(localPath);
+  const response = await fetch(supabaseObjectUrl(objectPath), {
+    method: "POST",
+    headers: supabaseHeaders({
+      "Content-Type": contentType || "application/octet-stream",
+      "Content-Length": String(fileInfo.size),
+      "x-upsert": "true",
+    }),
+    body: fs.createReadStream(localPath),
+    duplex: "half",
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error("Supabase Storage upload failed (" + response.status + "): " + text.slice(0, 500));
+}
+
+async function downloadFromSupabaseStorage(objectPath, localPath) {
+  if (!SUPABASE_CONFIGURED || !objectPath) throw new Error("Supabase Storage path is missing.");
+  const response = await fetch(supabaseObjectUrl(objectPath, "authenticated"), { headers: supabaseHeaders(), cache: "no-store" });
+  if (!response.ok || !response.body) {
+    const message = await response.text().catch(() => "");
+    throw new Error("Could not restore media from Supabase Storage (" + response.status + "): " + message.slice(0, 300));
+  }
+  await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(localPath));
+}
+
+async function deleteSupabaseStorageObject(objectPath) {
+  if (!SUPABASE_CONFIGURED || !objectPath) return;
+  const response = await fetch(supabaseObjectUrl(objectPath), { method: "DELETE", headers: supabaseHeaders() });
+  if (!response.ok && response.status !== 404) {
+    const text = await response.text().catch(() => "");
+    throw new Error("Supabase Storage delete failed (" + response.status + "): " + text.slice(0, 300));
+  }
+}
+
+function recordForJob(job) {
+  return {
+    id: job.id,
+    status: job.status === "running" ? "processing" : job.status,
+    progress: Math.max(0, Math.min(100, Math.round(Number(job.percent) || 0))),
+    message: job.message || "",
+    source_video_path: job.sourceVideoObjectPath || null,
+    source_audio_path: job.sourceAudioObjectPath || null,
+    output_object_path: job.outputObjectPath || null,
+    settings: job.settings || {},
+    duration_seconds: Number(job.duration) || null,
+    output_duration_seconds: Number(job.outputDuration) || null,
+    source_has_audio: Boolean(job.sourceHasAudio),
+    output_name: job.outputName || "ReEditX-remix.mp4",
+    output_bytes: Number(job.outputBytes) || null,
+    error_message: job.error || null,
+    created_at: new Date(job.createdAt || Date.now()).toISOString(),
+    updated_at: new Date(job.updatedAt || Date.now()).toISOString(),
+    expires_at: new Date(job.expiresAt || ((job.createdAt || Date.now()) + JOB_TTL_MS)).toISOString(),
+  };
+}
+
+async function upsertSupabaseJob(job) {
+  await supabaseRequest("/rest/v1/reeditx_render_jobs?on_conflict=id", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify(recordForJob(job)),
+  });
+  job.lastPersistAt = Date.now();
+  job.lastPersistStatus = job.status;
+  job.lastPersistProgress = job.percent;
+  job.persistChain = Promise.resolve();
+}
+
+function scheduleSupabasePersist(job, force = false) {
+  if (!SUPABASE_CONFIGURED) return Promise.resolve();
+  const now = Date.now();
+  const statusChanged = job.lastPersistStatus !== job.status;
+  const progressMoved = Math.abs((Number(job.percent) || 0) - (Number(job.lastPersistProgress) || 0)) >= 5;
+  const intervalElapsed = now - (job.lastPersistAt || 0) >= 4000;
+  if (!force && !statusChanged && !progressMoved && !intervalElapsed) return job.persistChain || Promise.resolve();
+  const snapshot = recordForJob(job);
+  job.lastPersistAt = now;
+  job.lastPersistStatus = job.status;
+  job.lastPersistProgress = job.percent;
+  const previous = job.persistChain || Promise.resolve();
+  job.persistChain = previous
+    .catch(() => undefined)
+    .then(() => supabaseRequest("/rest/v1/reeditx_render_jobs?on_conflict=id", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify(snapshot),
+    }))
+    .catch(error => console.error("Could not persist render job " + job.id + " to Supabase:", error instanceof Error ? error.message : String(error)));
+  return job.persistChain;
+}
+
+async function countOpenSupabaseJobs() {
+  const params = new URLSearchParams({
+    select: "id",
+    status: "in.(queued,processing)",
+    expires_at: "gt." + new Date().toISOString(),
+  });
+  const rows = await supabaseRequest("/rest/v1/reeditx_render_jobs?" + params.toString(), { method: "GET" });
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
+async function readSupabaseJob(id) {
+  if (!SUPABASE_CONFIGURED) return null;
+  const params = new URLSearchParams({ select: "*", id: "eq." + id });
+  const rows = await supabaseRequest("/rest/v1/reeditx_render_jobs?" + params.toString(), { method: "GET" });
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
+}
+
+function jobFromSupabaseRow(row) {
+  const directory = path.join(ROOT, row.id);
+  const videoObjectPath = row.source_video_path || null;
+  const audioObjectPath = row.source_audio_path || null;
+  const videoExtension = path.extname(videoObjectPath || ".mp4") || ".mp4";
+  const audioExtension = path.extname(audioObjectPath || ".mp3") || ".mp3";
+  const createdAt = Date.parse(row.created_at) || Date.now();
+  return {
+    id: row.id,
+    status: row.status === "processing" ? "running" : row.status,
+    percent: Math.max(0, Math.min(100, Number(row.progress) || 0)),
+    message: row.message || "Restored render job from Supabase.",
+    createdAt,
+    updatedAt: Date.parse(row.updated_at) || Date.now(),
+    expiresAt: Date.parse(row.expires_at) || createdAt + JOB_TTL_MS,
+    directory,
+    videoPath: path.join(directory, "source-video" + videoExtension),
+    audioPath: audioObjectPath ? path.join(directory, "soundtrack" + audioExtension) : null,
+    outputPath: path.join(directory, "ReEditX-remix.mp4"),
+    settings: settingsSchema.parse(row.settings || {}),
+    duration: Number(row.duration_seconds) || 0,
+    outputDuration: Number(row.output_duration_seconds) || 0,
+    sourceHasAudio: Boolean(row.source_has_audio),
+    outputName: row.output_name || "ReEditX-remix.mp4",
+    outputBytes: Number(row.output_bytes) || undefined,
+    error: row.error_message || null,
+    sourceVideoObjectPath: videoObjectPath,
+    sourceAudioObjectPath: audioObjectPath,
+    outputObjectPath: row.output_object_path || null,
+    process: null,
+    lastPersistAt: Date.now(),
+    lastPersistStatus: row.status === "processing" ? "running" : row.status,
+    lastPersistProgress: Number(row.progress) || 0,
+    persistChain: Promise.resolve(),
+  };
+}
+
+async function materializeClaimedSupabaseJob(row) {
+  let job = jobs.get(row.id);
+  if (job) {
+    writeJob(job, { status: "running", percent: Math.max(1, Number(row.progress) || 1), message: "Worker claimed this job from the Supabase queue." });
+    return job;
+  }
+  job = jobFromSupabaseRow(row);
+  await fsp.mkdir(job.directory, { recursive: true });
+  if (!fs.existsSync(job.videoPath)) await downloadFromSupabaseStorage(job.sourceVideoObjectPath, job.videoPath);
+  if (job.audioPath && !fs.existsSync(job.audioPath)) await downloadFromSupabaseStorage(job.sourceAudioObjectPath, job.audioPath);
+  if (!job.duration || !job.outputDuration) {
+    const inspection = await probeVideo(job.videoPath);
+    job.duration = inspection.duration;
+    job.outputDuration = inspection.duration / job.settings.speed;
+    job.sourceHasAudio = inspection.hasAudio;
+  }
+  jobs.set(job.id, job);
+  writeJob(job, { status: "running", percent: Math.max(1, job.percent), message: "Media restored. Preparing FFmpeg render." });
+  await scheduleSupabasePersist(job, true);
+  return job;
+}
+
+async function pollSupabaseQueue() {
+  if (!SUPABASE_CONFIGURED || supabasePolling) return;
+  supabasePolling = true;
+  try {
+    while (activeCount < MAX_ACTIVE) {
+      const claimed = await supabaseRequest("/rest/v1/rpc/claim_reeditx_render_job", {
+        method: "POST",
+        body: JSON.stringify({ p_worker_id: WORKER_ID }),
+      });
+      const row = Array.isArray(claimed) ? claimed[0] : null;
+      if (!row) break;
+      activeCount += 1;
+      void (async () => {
+        let job = null;
+        try {
+          job = await materializeClaimedSupabaseJob(row);
+          await runJob(job);
+        } catch (error) {
+          job = job || jobFromSupabaseRow(row);
+          jobs.set(job.id, job);
+          writeJob(job, {
+            status: "failed",
+            percent: 0,
+            message: "The render worker could not restore this job.",
+            error: (error instanceof Error ? error.message : String(error)).slice(0, 1800),
+            process: null,
+          });
+          await scheduleSupabasePersist(job, true);
+          await fsp.rm(job.directory, { recursive: true, force: true }).catch(() => {});
+          console.error("Supabase render job " + row.id + " failed to start:", error instanceof Error ? error.message : String(error));
+        } finally {
+          activeCount = Math.max(0, activeCount - 1);
+          void pollSupabaseQueue();
+        }
+      })();
+    }
+  } catch (error) {
+    console.error("Supabase render queue poll failed:", error instanceof Error ? error.message : String(error));
+  } finally {
+    supabasePolling = false;
+  }
+}
+
+async function cleanupSupabaseExpiredJobs() {
+  if (!SUPABASE_CONFIGURED) return;
+  const params = new URLSearchParams({
+    select: "id,source_video_path,source_audio_path,output_object_path",
+    expires_at: "lt." + new Date().toISOString(),
+    status: "in.(complete,failed)",
+  });
+  const rows = await supabaseRequest("/rest/v1/reeditx_render_jobs?" + params.toString(), { method: "GET" });
+  if (!Array.isArray(rows)) return;
+  for (const row of rows.slice(0, 50)) {
+    for (const objectPath of [row.source_video_path, row.source_audio_path, row.output_object_path]) {
+      await deleteSupabaseStorageObject(objectPath).catch(error => console.error("Could not clean up expired Supabase media:", error instanceof Error ? error.message : String(error)));
+    }
+    await supabaseRequest("/rest/v1/reeditx_render_jobs?id=eq." + encodeURIComponent(row.id), { method: "DELETE" }).catch(error => {
+      console.error("Could not delete expired Supabase job " + row.id + ":", error instanceof Error ? error.message : String(error));
+    });
+  }
+}
+
 
 const settingsSchema = z.object({
   speed: z.number().finite().min(0.25).max(2).default(1),
@@ -154,6 +419,7 @@ function publicJob(job) {
 
 function writeJob(job, changes) {
   Object.assign(job, changes, { updatedAt: Date.now() });
+  void scheduleSupabasePersist(job);
 }
 
 function startNext() {
@@ -223,10 +489,16 @@ async function runJob(job) {
 
     const stat = await fsp.stat(job.outputPath);
     if (stat.size < 1024) throw new Error("FFmpeg produced an invalid or empty output file.");
+    if (SUPABASE_CONFIGURED && job.outputObjectPath) {
+      writeJob(job, { percent: 99, message: "Uploading the completed MP4 to private Supabase Storage." });
+      await uploadToSupabaseStorage(job.outputPath, job.outputObjectPath, "video/mp4");
+    }
     writeJob(job, { status: "complete", percent: 100, message: "Server render complete.", outputBytes: stat.size, outputName: "ReEditX-remix.mp4", process: null });
+    await scheduleSupabasePersist(job, true);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Render failed.";
     writeJob(job, { status: "failed", percent: 0, message: "Server render failed.", error: message.slice(0, 1800), process: null });
+    await scheduleSupabasePersist(job, true);
     await fsp.rm(job.outputPath, { force: true }).catch(() => {});
   }
 }
@@ -249,7 +521,18 @@ const upload = multer({
 }).fields([{ name: "video", maxCount: 1 }, { name: "audio", maxCount: 1 }]);
 
 const healthHandler = (_req, res) => {
-  res.json({ name: "ReEditX Render Worker", status: "ok", engine: "ffmpeg", active: activeCount, queued: queue.length, maxConcurrent: MAX_ACTIVE, maxUploadBytes: MAX_FILE_BYTES, timestamp: new Date().toISOString() });
+  res.json({
+    name: "ReEditX Render Worker",
+    status: "ok",
+    engine: "ffmpeg",
+    queueBackend: SUPABASE_CONFIGURED ? "supabase-postgres" : "in-memory",
+    supabaseConfigured: SUPABASE_CONFIGURED,
+    active: activeCount,
+    queued: queue.length,
+    maxConcurrent: MAX_ACTIVE,
+    maxUploadBytes: MAX_FILE_BYTES,
+    timestamp: new Date().toISOString(),
+  });
 };
 // Public, low-detail endpoint for the hosting platform's health probe.
 app.get("/health", healthHandler);
@@ -263,9 +546,20 @@ app.post("/api/render", authenticate, renderLimiter, (req, res, next) => {
     const video = files.video?.[0];
     const audio = files.audio?.[0];
     let directory = null;
+    let jobId = null;
+    let sourceVideoObjectPath = null;
+    let sourceAudioObjectPath = null;
+    let outputObjectPath = null;
+    let rowPersisted = false;
     try {
       if (!video) { if (audio?.path) await fsp.rm(audio.path, { force: true }); return res.status(400).json({ error: "A video file is required.", code: "VIDEO_REQUIRED" }); }
-      if (activeCount + queue.length >= MAX_ACTIVE + MAX_QUEUE) {
+      if (production && !SUPABASE_CONFIGURED) {
+        await fsp.rm(video.path, { force: true });
+        if (audio) await fsp.rm(audio.path, { force: true });
+        return res.status(503).json({ error: "Supabase is not configured on this render worker.", code: "SUPABASE_NOT_CONFIGURED" });
+      }
+      const openJobs = SUPABASE_CONFIGURED ? await countOpenSupabaseJobs() : activeCount + queue.length;
+      if (openJobs >= MAX_ACTIVE + MAX_QUEUE) {
         await fsp.rm(video.path, { force: true }); if (audio) await fsp.rm(audio.path, { force: true });
         return res.status(429).json({ error: "The render queue is full. Try again in a few minutes.", code: "QUEUE_FULL" });
       }
@@ -288,22 +582,67 @@ app.post("/api/render", authenticate, renderLimiter, (req, res, next) => {
       const inspection = await probeVideo(video.path);
       const outputDuration = inspection.duration / settings.speed;
       if (outputDuration > MAX_DURATION * 2) throw new Error("Requested output duration exceeds the server safety limit.");
-      const id = crypto.randomUUID();
+      jobId = crypto.randomUUID();
+      const id = jobId;
       directory = path.join(ROOT, id);
       await fsp.mkdir(directory, { recursive: true });
-      const videoPath = path.join(directory, "source" + path.extname(video.originalname).toLowerCase());
+      const videoExtension = path.extname(video.originalname).toLowerCase();
+      const videoPath = path.join(directory, "source-video" + videoExtension);
       await fsp.rename(video.path, videoPath);
       let audioPath = null;
+      let audioExtension = "";
       if (audio) {
-        audioPath = path.join(directory, "soundtrack" + path.extname(audio.originalname).toLowerCase());
+        audioExtension = path.extname(audio.originalname).toLowerCase();
+        audioPath = path.join(directory, "soundtrack" + audioExtension);
         await fsp.rename(audio.path, audioPath);
       }
-      const job = { id, status: "queued", percent: 0, message: "Waiting for an available render slot.", createdAt: Date.now(), updatedAt: Date.now(), directory, videoPath, audioPath, outputPath: path.join(directory, "ReEditX-remix.mp4"), settings, duration: inspection.duration, outputDuration, sourceHasAudio: inspection.hasAudio, outputName: "ReEditX-remix.mp4", error: null, process: null };
-      jobs.set(id, job);
-      queue.push(job);
-      startNext();
+      sourceVideoObjectPath = SUPABASE_CONFIGURED ? "jobs/" + id + "/source-video" + videoExtension : null;
+      sourceAudioObjectPath = SUPABASE_CONFIGURED && audio ? "jobs/" + id + "/soundtrack" + audioExtension : null;
+      outputObjectPath = SUPABASE_CONFIGURED ? "jobs/" + id + "/ReEditX-remix.mp4" : null;
+      const job = {
+        id,
+        status: "queued",
+        percent: 0,
+        message: SUPABASE_CONFIGURED ? "Waiting in the persistent Supabase render queue." : "Waiting for an available render slot.",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        expiresAt: Date.now() + JOB_TTL_MS,
+        directory,
+        videoPath,
+        audioPath,
+        outputPath: path.join(directory, "ReEditX-remix.mp4"),
+        settings,
+        duration: inspection.duration,
+        outputDuration,
+        sourceHasAudio: inspection.hasAudio,
+        outputName: "ReEditX-remix.mp4",
+        error: null,
+        outputBytes: null,
+        sourceVideoObjectPath,
+        sourceAudioObjectPath,
+        outputObjectPath,
+        process: null,
+        persistChain: Promise.resolve(),
+      };
+      if (SUPABASE_CONFIGURED) {
+        await uploadToSupabaseStorage(videoPath, sourceVideoObjectPath, video.mimetype || "application/octet-stream");
+        if (audioPath && sourceAudioObjectPath) await uploadToSupabaseStorage(audioPath, sourceAudioObjectPath, audio.mimetype || "application/octet-stream");
+        await upsertSupabaseJob(job);
+        rowPersisted = true;
+        jobs.set(id, job);
+        void pollSupabaseQueue();
+      } else {
+        jobs.set(id, job);
+        queue.push(job);
+        startNext();
+      }
       return res.status(202).json({ jobId: id, status: job.status, statusUrl: `/api/jobs/${id}` });
     } catch (error) {
+      if (jobId) jobs.delete(jobId);
+      if (sourceVideoObjectPath) await deleteSupabaseStorageObject(sourceVideoObjectPath).catch(() => {});
+      if (sourceAudioObjectPath) await deleteSupabaseStorageObject(sourceAudioObjectPath).catch(() => {});
+      if (outputObjectPath) await deleteSupabaseStorageObject(outputObjectPath).catch(() => {});
+      if (rowPersisted && jobId && SUPABASE_CONFIGURED) await supabaseRequest("/rest/v1/reeditx_render_jobs?id=eq." + encodeURIComponent(jobId), { method: "DELETE" }).catch(() => {});
       if (video?.path) await fsp.rm(video.path, { force: true }).catch(() => {});
       if (audio?.path) await fsp.rm(audio.path, { force: true }).catch(() => {});
       if (directory) await fsp.rm(directory, { recursive: true, force: true }).catch(() => {});
@@ -312,24 +651,43 @@ app.post("/api/render", authenticate, renderLimiter, (req, res, next) => {
   });
 });
 
-function getJob(id) {
+async function resolveJobForRequest(id) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
-  return jobs.get(id) || null;
+  const local = jobs.get(id);
+  if (local) return local;
+  const row = await readSupabaseJob(id);
+  return row ? jobFromSupabaseRow(row) : null;
 }
 
-app.get("/api/jobs/:id", authenticate, (req, res) => {
-  const job = getJob(req.params.id);
-  if (!job) return res.status(404).json({ error: "Render job not found or expired.", code: "JOB_NOT_FOUND" });
-  return res.json(publicJob(job));
+app.get("/api/jobs/:id", authenticate, async (req, res, next) => {
+  try {
+    const job = await resolveJobForRequest(req.params.id);
+    if (!job) return res.status(404).json({ error: "Render job not found or expired.", code: "JOB_NOT_FOUND" });
+    return res.json(publicJob(job));
+  } catch (error) { return next(error); }
 });
 
-app.get("/api/jobs/:id/download", authenticate, (req, res) => {
-  const job = getJob(req.params.id);
-  if (!job) return res.status(404).json({ error: "Render job not found or expired.", code: "JOB_NOT_FOUND" });
-  if (job.status !== "complete" || !fs.existsSync(job.outputPath)) return res.status(409).json({ error: "This render is not ready to download yet.", code: "JOB_NOT_READY" });
-  res.setHeader("Content-Type", "video/mp4");
-  res.setHeader("Cache-Control", "no-store");
-  res.download(job.outputPath, job.outputName);
+app.get("/api/jobs/:id/download", authenticate, async (req, res, next) => {
+  try {
+    const job = await resolveJobForRequest(req.params.id);
+    if (!job) return res.status(404).json({ error: "Render job not found or expired.", code: "JOB_NOT_FOUND" });
+    if (job.status !== "complete") return res.status(409).json({ error: "This render is not ready to download yet.", code: "JOB_NOT_READY" });
+    res.setHeader("Content-Type", "video/mp4");
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (fs.existsSync(job.outputPath)) return res.download(job.outputPath, job.outputName || "ReEditX-remix.mp4");
+    if (!SUPABASE_CONFIGURED || !job.outputObjectPath) {
+      return res.status(404).json({ error: "The completed MP4 is no longer available.", code: "OUTPUT_NOT_FOUND" });
+    }
+    const response = await fetch(supabaseObjectUrl(job.outputObjectPath, "authenticated"), { headers: supabaseHeaders(), cache: "no-store" });
+    if (!response.ok || !response.body) {
+      return res.status(502).json({ error: "Could not retrieve the MP4 from Supabase Storage.", code: "STORAGE_DOWNLOAD_FAILED" });
+    }
+    res.setHeader("Content-Disposition", 'attachment; filename="' + (job.outputName || "ReEditX-remix.mp4").replace(/["\\\r\n]/g, "_") + '"');
+    const contentLength = response.headers.get("content-length");
+    if (contentLength) res.setHeader("Content-Length", contentLength);
+    Readable.fromWeb(response.body).on("error", error => res.destroy(error)).pipe(res);
+  } catch (error) { return next(error); }
 });
 
 app.use((error, _req, res, _next) => {
@@ -344,7 +702,12 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`ReEditX render worker listening on ${HOST}:${PORT}`);
   console.log(`Max concurrent renders: ${MAX_ACTIVE}; upload limit: ${Math.round(MAX_FILE_BYTES / 1024 / 1024)} MB per file`);
   if (!TOKEN && production) console.error("RENDER_API_TOKEN is required in production; authenticated endpoints will return 503.");
+  if (!SUPABASE_CONFIGURED && production) console.error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for persistent production rendering.");
 });
+
+const supabasePollTimer = SUPABASE_CONFIGURED ? setInterval(() => { void pollSupabaseQueue(); }, 1500) : null;
+supabasePollTimer?.unref();
+if (SUPABASE_CONFIGURED) void pollSupabaseQueue();
 
 const cleanup = setInterval(async () => {
   const before = Date.now() - JOB_TTL_MS;
@@ -354,6 +717,7 @@ const cleanup = setInterval(async () => {
       await fsp.rm(job.directory, { recursive: true, force: true }).catch(() => {});
     }
   }
+  await cleanupSupabaseExpiredJobs().catch(error => console.error("Supabase expiry cleanup failed:", error instanceof Error ? error.message : String(error)));
   // Reap orphan upload temp files older than one day.
   const files = await fsp.readdir(UPLOADS, { withFileTypes: true }).catch(() => []);
   for (const file of files) {
@@ -366,6 +730,7 @@ cleanup.unref();
 
 function shutdown() {
   clearInterval(cleanup);
+  if (supabasePollTimer) clearInterval(supabasePollTimer);
   for (const job of jobs.values()) if (job.process && !job.process.killed) job.process.kill("SIGTERM");
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(1), 10_000).unref();

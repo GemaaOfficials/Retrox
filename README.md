@@ -63,25 +63,27 @@ Alternatively, desktop/local browser editing can run from the bundled Next.js ap
 without a hosted service and export WebM through browser media APIs.
 ```
 
-## Dedicated render server deployment
+## Supabase backend and render worker
 
-The server implementation and container live under [server/](server/). For a Railway deployment:
+ReEditX uses Supabase Postgres for the durable render queue and job status, and a **private Supabase Storage bucket** for uploaded source media and rendered MP4 files. The worker uses the Supabase service key only on the server; no login is required in the browser, and no service key is shipped to the frontend or desktop installer.
 
-1. Create a separate service from this repository and set its **Root Directory** to `/server`. Use the `server/Dockerfile` container (the `server/railway.json` config expects the service root to be `server`).
-2. Configure `RENDER_API_TOKEN` to a long random secret, `MAX_UPLOAD_MB`, `MAX_CONCURRENT_RENDERS`, `MAX_QUEUED_RENDERS`, `TRUST_PROXY=1`, and an appropriate `CORS_ORIGINS` list. The Docker image installs FFmpeg, FFprobe, and fonts.
-3. Deploy a separate web service from the repository root using the root `Dockerfile`. Set `REEDITX_RENDER_SERVER_URL` to the worker's public HTTPS URL and `REEDITX_RENDER_API_TOKEN` to the same token. These are **server-side variables**, not `NEXT_PUBLIC_*` variables.
-4. Rebuild/redeploy the web app after setting its environment variables. Visit `/studio`; the **Render on server** button becomes enabled when the protected worker health check passes.
+1. Create/select the Supabase project for ReEditX (the connected organization is on the Free plan).
+2. Apply [supabase/schema.sql](supabase/schema.sql) in the Supabase SQL Editor. It creates the private \`reeditx-media\` bucket, a locked-down \`reeditx_render_jobs\` table, indexes, and the atomic queue-claim function.
+3. On the **render worker container** set \`SUPABASE_URL\`, \`SUPABASE_SERVICE_ROLE_KEY\` (or \`SUPABASE_SECRET_KEY\`), \`REEDITX_STORAGE_BUCKET=reeditx-media\`, and \`RENDER_API_TOKEN\`. Keep both secrets out of the repository and browser environment. The worker defaults to a 50 MB limit per file to match Supabase Free Storage.
+4. Deploy the \`server/\` Docker container on a CPU-capable container host that can run FFmpeg. It polls the Supabase queue, claims jobs with row locking, records progress in Postgres, stores sources/results in private Storage, and can restore queued jobs after a restart.
+5. On the **Next.js web service**, set \`REEDITX_RENDER_SERVER_URL\` to the worker's HTTPS URL and \`REEDITX_RENDER_API_TOKEN\` to the same shared token. These are server-side variables, never \`NEXT_PUBLIC_*\` variables. The “Render on server” button enables when the protected health check confirms Supabase is configured.
 
-For local-only worker development, install FFmpeg/FFprobe on your machine, then:
+Supabase provides the database, private storage, and the durable queue here; it does not run a long-lived FFmpeg container. Supabase Edge Functions are not used to encode complete videos because their hosted runtime has a 2-second CPU limit per request and bounded wall-clock duration. See the [current Edge Function limits](https://supabase.com/docs/guides/functions/limits).
 
-```bash
+For local-only worker development, install FFmpeg/FFprobe on your machine, set the environment variables above, and run:
+
+\`\`\`bash
 cd server
 npm install
-# set RENDER_API_TOKEN to a long random token
 npm run dev
-```
+\`\`\`
 
-The worker listens on port 8787 by default. In production it refuses authenticated render jobs if `RENDER_API_TOKEN` is not configured. Do not commit or put the secret in client-side code, desktop config, or repository variables that get baked into the app.
+The worker listens on port 8787 by default. For local development without Supabase configured, the worker retains its in-memory queue for smoke tests; production jobs require Supabase.
 
 ## Server API
 
