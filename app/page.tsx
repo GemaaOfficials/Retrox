@@ -37,9 +37,17 @@ export default function DownloadHome() {
     if (state === "preparing") return;
     setNotice(""); setInstaller(null); setState("preparing");
     try {
-      const response = await fetch("/api/releases/latest", { cache: "no-store" });
-      if (!response.ok) throw new Error("Could not check the latest installer release.");
-      const data = await response.json() as InstallerInfo;
+      const response = await fetch("https://api.github.com/repos/GemaaOfficials/Retrox/releases/latest", {
+        headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }, cache: "no-store",
+      });
+      let data: InstallerInfo;
+      if (response.status === 404) data = { available: false, releasesUrl, message: "The first Windows setup installer has not been published yet." };
+      else {
+        if (!response.ok) throw new Error("Could not check the latest installer release.");
+        const release = await response.json() as { draft?:boolean; prerelease?:boolean; tag_name?:string; assets?:{name:string;browser_download_url:string;size:number}[] };
+        const asset = (release.assets || []).find(item => /^ReEditX\.setup-[0-9A-Za-z.+_-]+\.exe$/i.test(item.name));
+        data = { available:Boolean(asset) && !release.draft && !release.prerelease, version:release.tag_name, releasesUrl, asset:asset?{name:asset.name,downloadUrl:asset.browser_download_url,size:asset.size}:undefined, message:asset?undefined:"No published Windows ReEditX setup package was found yet." };
+      }
       setInstaller(data);
       await new Promise(resolve => setTimeout(resolve, 2300));
       if (!data.available || !data.asset?.downloadUrl) {
