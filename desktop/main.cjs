@@ -82,7 +82,7 @@ async function waitForServer(url) {
   let lastError = null;
   for (let attempt = 0; attempt < 120; attempt += 1) {
     if (serverSpawnError) {
-      throw new Error(`Windows could not launch the bundled Node.js runtime: ${serverSpawnError.message}${recentServerOutput()}`);
+      throw new Error(`Windows could not launch Electron's embedded Node.js runtime: ${serverSpawnError.message}${recentServerOutput()}`);
     }
     if (nextServer && (nextServer.exitCode !== null || nextServer.signalCode !== null)) {
       throw new Error(
@@ -103,13 +103,13 @@ async function startLocalServer() {
   const serverDirectory = path.join(process.resourcesPath, "app-server");
   const serverEntry = path.join(serverDirectory, "server.js");
   const buildIdFile = path.join(serverDirectory, ".next", "BUILD_ID");
-  const nodeRuntime = path.join(process.resourcesPath, "node.exe");
+  const appRuntime = process.execPath;
 
   serverSpawnError = null;
   serverOutputTail.length = 0;
 
   const missingFiles = [
-    [nodeRuntime, "bundled Node.js runtime"],
+    [appRuntime, "Electron application runtime"],
     [serverEntry, "bundled Next.js server"],
     [buildIdFile, "Next.js production build metadata"],
   ].filter(([filePath]) => !fs.existsSync(filePath));
@@ -122,21 +122,22 @@ async function startLocalServer() {
   const port = await pickPort();
   localOrigin = `http://127.0.0.1:${port}`;
   log(`Starting packaged Next.js server at ${localOrigin}`);
-  log(`Bundled Node.js runtime: ${nodeRuntime}`);
+  log(`Electron embedded Node.js runtime: ${appRuntime}`);
   log(`Bundled server entry: ${serverEntry}`);
 
   // Keep machine-specific Node settings from breaking the bundled production server.
   const serverEnv = { ...process.env };
-  for (const name of ["NODE_OPTIONS", "NODE_PATH", "ELECTRON_RUN_AS_NODE"]) delete serverEnv[name];
+  for (const name of ["NODE_OPTIONS", "NODE_PATH"]) delete serverEnv[name];
   Object.assign(serverEnv, {
     NODE_ENV: "production",
     HOSTNAME: "127.0.0.1",
     PORT: String(port),
     // Deliberately do not embed or forward any render-server secret to this desktop process.
+    ELECTRON_RUN_AS_NODE: "1",
     REEDITX_DESKTOP: "1",
   });
 
-  nextServer = spawn(nodeRuntime, [serverEntry], {
+  nextServer = spawn(appRuntime, [serverEntry], {
     cwd: serverDirectory,
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
