@@ -59,6 +59,10 @@
       {
         "from": "public",
         "to": "app-server/public"
+      },
+      {
+        "from": "node_modules/next",
+        "to": "app-server/node_modules/next"
       }
     ],
     "asar": true,
