@@ -25,7 +25,7 @@ jobs:
           distribution: temurin
           java-version: "21"
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
       - name: Install mobile dependencies
         run: npm install --prefix mobile
       - name: Build static ReEditX app
