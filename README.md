@@ -1,5 +1,7 @@
 # ReEditX — Local Video Remix Studio
 
+**Made by Gemaa.**
+
 ReEditX is a local-first, deterministic video remix editor for Windows, Android, and the browser. Editing and export use on-device browser media APIs; there is no login, AI model, hosted rendering service, or backend secret to configure.
 
 ## Downloads

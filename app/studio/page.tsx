@@ -605,7 +605,7 @@ export default function Studio() {
         </aside>
       </div>
       {notice && <div className="toast" role="status"><span>{notice}</span><button aria-label="Dismiss message" onClick={()=>setNotice("")}><X size={13}/></button></div>}
-      <footer className="page-footer"><span>REEDITX STUDIO <i>·</i> MADE FOR CREATORS</span><span><ShieldCheck size={12}/> YOUR MEDIA STAYS ON THIS DEVICE</span><button onClick={reset}><RefreshCw size={12}/> Clear workspace</button></footer>
+      <footer className="page-footer"><span>REEDITX STUDIO <i>·</i> MADE BY GEMAA</span><span><ShieldCheck size={12}/> YOUR MEDIA STAYS ON THIS DEVICE</span><button onClick={reset}><RefreshCw size={12}/> Clear workspace</button></footer>
     </main>
   );
 }

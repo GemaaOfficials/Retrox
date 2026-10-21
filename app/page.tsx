@@ -168,7 +168,7 @@ export default function DownloadHome() {
         <button className="download-bottom-btn" onClick={beginDownload} disabled={state==="preparing"}><Download size={17}/> Get ReEditX Setup <ArrowUpRight size={15}/></button>
       </section>
 
-      <footer className="download-footer"><Link href="/" className="footer-brand">ReEdit<span>X</span><small>.setup</small></Link><span>MEDIA IS YOURS · PROJECTS STAY LOCAL BY DEFAULT</span><div><a href={releasesUrl} target="_blank" rel="noreferrer">Releases</a><a href="https://github.com/GemaaOfficials/Retrox" target="_blank" rel="noreferrer">Source code</a><Link href="/studio">Web studio</Link></div></footer>
+      <footer className="download-footer"><Link href="/" className="footer-brand">ReEdit<span>X</span><small>.setup</small></Link><span>MADE BY GEMAA · PROJECTS STAY LOCAL BY DEFAULT</span><div><a href={releasesUrl} target="_blank" rel="noreferrer">Releases</a><a href="https://github.com/GemaaOfficials/Retrox" target="_blank" rel="noreferrer">Source code</a><Link href="/studio">Web studio</Link></div></footer>
     </main>
   );
 }
