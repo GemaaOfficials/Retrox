@@ -1,3 +1,0 @@
-import { NextResponse } from "next/server";import { REEDITX_RENDER_FUNCTION_URL, supabaseHeaders } from "@/lib/supabase-config";
-export const runtime="nodejs";export const dynamic="force-dynamic";
-export async function GET(){try{const r=await fetch(REEDITX_RENDER_FUNCTION_URL+"?action=health",{headers:supabaseHeaders(),cache:"no-store",signal:AbortSignal.timeout(8000)});return new Response(r.body,{status:r.status,headers:{"Content-Type":r.headers.get("content-type")||"application/json","Cache-Control":"no-store"}});}catch{return NextResponse.json({available:false,configured:false,message:"The Supabase render API is unreachable."},{status:502});}}

@@ -4,7 +4,6 @@ const { spawn } = require("node:child_process");
 const net = require("node:net");
 const path = require("node:path");
 const fs = require("node:fs");
-const { appUrl } = require("./config.cjs");
 
 let mainWindow = null;
 let nextServer = null;
@@ -154,12 +153,6 @@ function createWindow(origin) {
 
 async function launch() {
   try {
-    if (appUrl && validWebUrl(appUrl)) {
-      const origin = new URL(appUrl).origin;
-      log(`Opening hosted ReEditX workspace from ${origin}`);
-      createWindow(origin);
-      return;
-    }
     const origin = await startLocalServer();
     createWindow(origin);
   } catch (error) {
@@ -179,8 +172,8 @@ async function launch() {
 if (gotLock) {
   app.whenReady().then(launch);
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0 && (localOrigin || (appUrl && validWebUrl(appUrl)))) {
-      createWindow(localOrigin || new URL(appUrl).origin);
+    if (BrowserWindow.getAllWindows().length === 0 && localOrigin) {
+      createWindow(localOrigin);
     }
   });
   app.on("before-quit", () => {

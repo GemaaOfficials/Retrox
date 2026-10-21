@@ -5,10 +5,9 @@ import Link from "next/link";
 import {
   Activity, AudioLines, Check, ChevronDown, Clapperboard, Download, Film,
   Layers3, LoaderCircle, Music2, Pause, Play, Plus, RefreshCw, Scissors,
-  ShieldCheck, SlidersHorizontal, Sparkles, Upload, WandSparkles, X, Server,
+  ShieldCheck, SlidersHorizontal, Sparkles, Upload, WandSparkles, X,
 } from "lucide-react";
 import { clearProject, loadProject, saveProject, type Aspect, type FilterPreset, type ProjectSettings, type Rhythm } from "@/lib/project-db";
-import { REEDITX_RENDER_FUNCTION_URL, supabaseHeaders } from "@/lib/supabase-config";
 import { buildEditPlan } from "@/lib/edit-plan";
 
 type Scene = { id: number; start: number; end: number; duration: number; label: string };
@@ -108,8 +107,6 @@ export default function Studio() {
   const [exporting, setExporting] = useState(false);
   const [progress, setProgress] = useState<Progress>({ percent: 0, title: "", detail: "" });
   const [activePanel, setActivePanel] = useState<"look" | "sound" | "text">("look");
-  const [serverStatus, setServerStatus] = useState<"checking" | "online" | "offline">("checking");
-  const [renderServerStatus, setRenderServerStatus] = useState<"checking" | "ready" | "offline">("checking");
   const [planLabel, setPlanLabel] = useState("READY TO CREATE");
   const [showScenes, setShowScenes] = useState(true);
   const [titleVisible, setTitleVisible] = useState(true);
@@ -122,15 +119,6 @@ export default function Studio() {
     const timer = window.setTimeout(() => setScenes(buildEditPlan(duration, settings.rhythm)), 0);
     return () => window.clearTimeout(timer);
   }, [duration, settings.rhythm, settings.preset]);
-
-  useEffect(() => {
-    let active = true;
-    fetch(REEDITX_RENDER_FUNCTION_URL + "?action=health", { headers:supabaseHeaders(), cache:"no-store" })
-      .then(async response => ({response,data:await response.json().catch(()=>({}))}))
-      .then(({response,data}) => {if(!active)return;setServerStatus(data.configured===true?"online":"offline");setRenderServerStatus(data.available===true?"ready":"offline");})
-      .catch(()=>{if(active){setServerStatus("offline");setRenderServerStatus("offline");}});
-    return () => {active=false;};
-  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -304,7 +292,7 @@ export default function Studio() {
   const exportRemix = async () => {
     const video = videoRef.current;
     if (!video || !videoFile || exporting) return;
-    if (!("MediaRecorder" in window) || !("captureStream" in HTMLCanvasElement.prototype)) { setNotice("Your browser lacks canvas recording support. Please use an up-to-date desktop Chrome or Edge."); return; }
+    if (!("MediaRecorder" in window) || !("captureStream" in HTMLCanvasElement.prototype)) { setNotice("Your browser lacks canvas recording support. Try a recent Chrome or Edge browser that supports local media recording."); return; }
     exportingRef.current = true;
     setExporting(true); setNotice(""); setPlanLabel("RENDERING LOCALLY");
     setProgress({ percent: 0, title: "Preparing the remix", detail: "Building the live render pipeline…" });
@@ -457,73 +445,6 @@ export default function Studio() {
     }
   };
 
-  const renderOnServer = async () => {
-    if (!videoFile || inspecting || exporting) return;
-    setExporting(true);
-    setNotice("");
-    setPlanLabel("UPLOADING TO RENDER SERVER");
-    setProgress({ percent: 0, title: "Preparing server render", detail: "Connecting to the Supabase render queue…" });
-    try {
-      const payload = new FormData();
-      payload.append("video", videoFile, videoFile.name);
-      if (audioFile) payload.append("audio", audioFile, audioFile.name);
-      payload.append("settings", JSON.stringify({
-        speed: settings.speed / 100,
-        volume: settings.volume,
-        sourceVolume: settings.sourceVolume,
-        fadeIn: settings.fadeIn,
-        fadeOut: settings.fadeOut,
-        aspect: settings.aspect,
-        preset: settings.preset,
-        rhythm: settings.rhythm,
-        title: settings.title,
-        subtitle: settings.subtitle,
-        animatedTitles: settings.animatedTitles,
-        useQuickCuts: settings.useQuickCuts,
-      }));
-      const createResponse = await fetch(REEDITX_RENDER_FUNCTION_URL, { method:"POST", headers:supabaseHeaders(), body:payload });
-      const created = await createResponse.json().catch(() => ({}));
-      if (!createResponse.ok || !created.jobId || !created.clientToken) throw new Error(created.error || "Could not submit the render job.");
-      const jobId = String(created.jobId);
-      const clientToken = String(created.clientToken);
-      const startedAt = Date.now();
-      setProgress({ percent: 1, title: "Render queued", detail: "Your media is stored privately in Supabase and queued for FFmpeg…" });
-      let complete = false;
-      while (!complete) {
-        if (Date.now() - startedAt > 3 * 60 * 60 * 1000) throw new Error("Server render timed out. The worker may still clean up the job.");
-        await new Promise(resolve => window.setTimeout(resolve, 1100));
-        const statusResponse = await fetch(REEDITX_RENDER_FUNCTION_URL + "?action=status&id=" + encodeURIComponent(jobId), { headers:{...supabaseHeaders(),"X-ReEditX-Job-Token":clientToken},cache:"no-store" });
-        const status = await statusResponse.json().catch(() => ({}));
-        if (!statusResponse.ok) throw new Error(status.error || "Lost contact with the render job.");
-        if (status.status === "failed") throw new Error(status.error || status.message || "The FFmpeg worker could not complete this render.");
-        if (status.status === "complete") {
-          complete = true;
-          setProgress({ percent: 100, title: "Server render complete", detail: "The MP4 is ready. Starting a secure download from your render job…" });
-          break;
-        }
-        const percent = Math.max(1, Math.min(97, Number(status.percent) || 1));
-        setProgress({ percent, title: status.status === "queued" ? "Waiting for the render server" : "Rendering on the server", detail: status.message || "FFmpeg is processing your video and audio…" });
-      }
-      const response = await fetch(REEDITX_RENDER_FUNCTION_URL + "?action=download&id=" + encodeURIComponent(jobId), { headers:{...supabaseHeaders(),"X-ReEditX-Job-Token":clientToken}, cache:"no-store" });
-      const download = await response.json().catch(() => ({}));
-      if(!response.ok || typeof download.downloadUrl !== "string") throw new Error(download.error || "The completed MP4 could not be downloaded.");
-      const anchor = document.createElement("a");
-      anchor.href = download.downloadUrl;
-      anchor.download = (videoFile.name.replace(/\.[^.]+$/, "") || "reeditx") + "-server-remix.mp4";
-      anchor.rel = "noopener noreferrer";
-      document.body.appendChild(anchor); anchor.click(); anchor.remove();
-      setNotice("Server render is complete. Your MP4 download has started.");
-      setPlanLabel("SERVER EXPORT COMPLETE");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Server rendering failed.";
-      setProgress({ percent: 0, title: "Server render could not finish", detail: message });
-      setNotice(message);
-      setPlanLabel("SERVER RENDER ERROR");
-    } finally {
-      setExporting(false);
-    }
-  };
-
   const removeAudio = () => { if (audioUrl) URL.revokeObjectURL(audioUrl); setAudioUrl(""); setAudioFile(null); setNotice("Soundtrack removed."); };
   const moveToMarker = (time: number) => { if (videoRef.current) { videoRef.current.currentTime = time; videoRef.current.pause(); setPreviewPlaying(false); } };
 
@@ -533,7 +454,7 @@ export default function Studio() {
       <header className="topbar">
         <Link className="brand" href="/" aria-label="ReEditX home"><span className="brand-mark"><Clapperboard size={21} strokeWidth={2.4} /></span><span><strong>ReEdit<span>X</span></strong><small>YOUR FOOTAGE. YOUR RULES.</small></span></Link>
         <div className="topbar-right">
-          <span className={serverStatus === "online" ? "api-state online" : "api-state"}><i />{serverStatus === "checking" ? "CONNECTING" : serverStatus === "online" ? "LOCAL ENGINE ONLINE" : "OFFLINE MODE"}</span>
+          <span className="api-state online"><i />LOCAL ENGINE ONLINE</span>
           <div className="save-state">{saved === "saving" ? <LoaderCircle size={14} className="spin" /> : saved === "error" ? <X size={14} /> : <Check size={14} />}{saved === "saving" ? "Saving project" : saved === "error" ? "Save issue" : "Autosaved locally"}</div>
         </div>
       </header>
@@ -601,10 +522,10 @@ export default function Studio() {
             {activePanel==="text" && <div className="inspector-body">
               <div className="control-section"><div className="section-title"><span>Animated title card</span><span className="section-index">01</span></div><label className="field-label" htmlFor="title">Main title</label><input id="title" className="text-input" value={settings.title} maxLength={90} placeholder="e.g. THE MOMENT" onChange={e=>patch("title",e.target.value)}/><label className="field-label second-label" htmlFor="subtitle">Sub-title</label><input id="subtitle" className="text-input" value={settings.subtitle} maxLength={120} placeholder="Add a little context…" onChange={e=>patch("subtitle",e.target.value)}/><label className="switch-row switch-text"><span><b>Animated entrance</b><small>Fade + slide into frame</small></span><input type="checkbox" checked={settings.animatedTitles} onChange={e=>patch("animatedTitles",e.target.checked)}/><i /></label><label className="switch-row switch-text"><span><b>Show preview title</b><small>Show text over the monitor</small></span><input type="checkbox" checked={titleVisible} onChange={e=>setTitleVisible(e.target.checked)}/><i /></label></div><div className="title-preview"><span className="eyebrow">TITLE PREVIEW</span><strong>{settings.title || "YOUR TITLE HERE"}</strong><small>{settings.subtitle || "YOUR SUBTITLE HERE"}</small></div><p className="hint-box"><WandSparkles size={14}/> Text is drawn into the exported frames with a timed fade-and-slide animation.</p>
             </div>}
-            <div className="panel-bottom"><div className="engine-line"><span className="engine-dot"/><span>REEDITX RULES ENGINE</span><small>NO AI</small></div><div className="api-line"><span>BACKEND</span><b className={serverStatus==="online"?"good":""}>{serverStatus==="online"?"CONNECTED":serverStatus==="checking"?"CHECKING":"LOCAL UI"}</b></div></div>
+            <div className="panel-bottom"><div className="engine-line"><span className="engine-dot"/><span>REEDITX RULES ENGINE</span><small>NO AI</small></div><div className="api-line"><span>PROCESSING</span><b className="good">ON DEVICE</b></div></div>
           </div>
 
-          <div className="panel export-card"><div className="export-card-top"><span className="eyebrow">FINAL OUTPUT</span><span className="export-type">LOCAL WEBM</span></div><h3>Bring the cut to life.</h3><p>Export locally for privacy, or use the server renderer for FFmpeg-powered MP4 output on a dedicated worker.</p><button className="button button-primary export-button" onClick={exportRemix} disabled={!videoFile || inspecting || exporting}><span>{exporting?<LoaderCircle size={16} className="spin"/>:<Download size={16}/>}</span>{exporting?"Rendering…":"Export locally"}{!exporting&&<span className="export-arrow">↗</span>}</button><button className="button button-server export-button" onClick={renderOnServer} disabled={!videoFile || inspecting || exporting || renderServerStatus!=="ready"}><span>{exporting?<LoaderCircle size={16} className="spin"/>:<Server size={16}/>}</span>{exporting?"Server processing…":renderServerStatus==="checking"?"Checking render server…":"Render on server"}{!exporting&&<span className="export-arrow">↗</span>}</button>{!videoFile&&<small className="export-hint">Upload a video to unlock exports.</small>}{videoFile&&inspecting&&<small className="export-hint">Waiting for frame inspection to finish.</small>}{videoFile&&!inspecting&&renderServerStatus==="ready"&&<small className="export-hint cloud-ready">Supabase queue + FFmpeg runner connected · MP4</small>}{videoFile&&!inspecting&&renderServerStatus!=="ready"&&<small className="export-hint">Server export requires the scheduled FFmpeg runner to be online.</small>}<div className="export-note"><ShieldCheck size={13}/> Local assets stay in browser storage; server exports upload them for processing.</div></div>
+          <div className="panel export-card"><div className="export-card-top"><span className="eyebrow">FINAL OUTPUT</span><span className="export-type">LOCAL WEBM</span></div><h3>Bring the cut to life.</h3><p>Your video and soundtrack are rendered on this device. Nothing is uploaded for processing.</p><button className="button button-primary export-button" onClick={exportRemix} disabled={!videoFile || inspecting || exporting}><span>{exporting?<LoaderCircle size={16} className="spin"/>:<Download size={16}/>}</span>{exporting?"Rendering…":"Export locally"}{!exporting&&<span className="export-arrow">↗</span>}</button>{!videoFile&&<small className="export-hint">Upload a video to unlock exports.</small>}{videoFile&&inspecting&&<small className="export-hint">Waiting for frame inspection to finish.</small>}<div className="export-note"><ShieldCheck size={13}/> No account or render-server setup required. Output format: WebM.</div></div>
         </aside>
       </div>
       {notice && <div className="toast" role="status"><span>{notice}</span><button aria-label="Dismiss message" onClick={()=>setNotice("")}><X size={13}/></button></div>}

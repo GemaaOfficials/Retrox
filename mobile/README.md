@@ -1,6 +1,8 @@
 # ReEditX Android
 
-This is the Capacitor wrapper for the ReEditX portal and studio. Its build script copies the current root pages, styles, IndexedDB storage, and public Supabase client configuration into a static Next.js export, then Capacitor bundles that site into an Android APK.
+This is the Capacitor wrapper for the ReEditX editor. The build script copies the current pages, styles, IndexedDB project storage, and local edit-plan logic into a static Next.js export, then Capacitor bundles the app into an Android APK.
+
+Video and soundtrack files are selected from the device and processed by browser media APIs inside the Android WebView. Projects are saved in the app's local storage. No login, Supabase project, cloud render worker, or secret key is needed. Export format is WebM.
 
 Build locally with Node.js 24, Java 21, and Android SDK installed:
 
@@ -11,4 +13,4 @@ Build locally with Node.js 24, Java 21, and Android SDK installed:
     cd android
     ./gradlew assembleDebug
 
-The Build ReEditX Android APK GitHub Actions workflow compiles and publishes the APK to the android-latest GitHub Release. Server video rendering also requires the GitHub Actions secret described in the main README.
+The Build ReEditX Android APK GitHub Actions workflow compiles and publishes the APK to the android-latest GitHub Release.

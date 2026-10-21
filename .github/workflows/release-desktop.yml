@@ -24,8 +24,6 @@ jobs:
   windows-installer:
     runs-on: windows-latest
     timeout-minutes: 45
-    env:
-      REEDITX_APP_URL: ${{ vars.REEDITX_APP_URL }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -51,21 +49,6 @@ jobs:
           $nodePath = (Get-Command node).Source
           Copy-Item $nodePath "build-runtime/node.exe" -Force
           Write-Host "Bundled runtime: $nodePath"
-
-      - name: Configure optional hosted-app URL
-        shell: pwsh
-        env:
-          REEDITX_APP_URL: ${{ vars.REEDITX_APP_URL }}
-        run: |
-          $appUrl = $env:REEDITX_APP_URL
-          if ($appUrl) {
-            if (-not ($appUrl -match '^https://')) { throw "REEDITX_APP_URL must be a public HTTPS URL." }
-            $json = ConvertTo-Json -Compress @{ appUrl = $appUrl }
-            Set-Content -Path "desktop/config.cjs" -Value "module.exports = $json;" -Encoding utf8
-            Write-Host "Hosted application URL configured from the repository variable."
-          } else {
-            Write-Host "Using the committed desktop/config.cjs default."
-          }
 
       - name: Build Next.js standalone application
         run: npm run build
