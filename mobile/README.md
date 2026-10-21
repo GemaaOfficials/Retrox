@@ -2,11 +2,18 @@
 
 **Made by Gemaa.**
 
-This is the Capacitor wrapper for the ReEditX editor. The build script copies the current pages, styles, IndexedDB project storage, and local edit-plan logic into a static Next.js export, then Capacitor bundles the app into an Android APK.
+ReEditX is currently distributed for Android mobile only. This folder contains the Capacitor app that bundles the editor and the Retrox FFmpeg/WebAssembly core into a self-contained APK.
 
-Video and soundtrack files are selected from the device and processed by browser media APIs inside the Android WebView. Projects are saved in the app's local storage. No login, Supabase project, cloud render worker, or secret key is needed. Retrox bundles the FFmpeg/WebAssembly core in the APK and exports MP4 locally; a browser-based WebM fallback is also available. The first render can be slow, especially on phones.
+Video and soundtrack files are selected from the phone and processed locally inside Android's WebView. Projects are saved in the app's local storage. No login, cloud-render worker, or secret key is needed. The app exports MP4 locally through FFmpeg/WebAssembly, with a browser-based WebM fallback. Rendering can be slow on long or high-resolution clips.
 
-Build locally with Node.js 24, Java 21, and Android SDK installed:
+## Download
+
+The latest APK is published at:
+https://github.com/GemaaOfficials/Retrox/releases/download/android-latest/ReEditX.apk
+
+## Build locally
+
+Requirements: Node.js 24, Java 21, and Android SDK.
 
     npm install
     npm run build:web
@@ -15,4 +22,4 @@ Build locally with Node.js 24, Java 21, and Android SDK installed:
     cd android
     ./gradlew assembleDebug
 
-The Build ReEditX Android APK GitHub Actions workflow compiles and publishes the APK to the android-latest GitHub Release.
+The `Build ReEditX Android APK` GitHub Actions workflow builds and publishes the APK to the `android-latest` GitHub Release.
