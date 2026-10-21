@@ -6,7 +6,7 @@ import Link from "next/link";
 export default function Home() {
   useEffect(() => {
     // The installed Android app should launch straight into the editor.
-    window.location.replace("/studio");
+    window.location.replace("/studio/");
   }, []);
 
   return (
@@ -30,7 +30,7 @@ export default function Home() {
         <p style={{ color: "#a1a1aa", lineHeight: 1.7, marginBottom: 28 }}>
           Mobile video editing studio. Opening your workspace…
         </p>
-        <Link href="/studio" style={{
+        <Link href="/studio/" style={{
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
